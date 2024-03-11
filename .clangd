@@ -1,0 +1,12 @@
+CompileFlags:
+  Compiler: clang++
+  Add:
+    - -D_CLANGD=1
+    - --no-cuda-version-check
+  Remove:
+    - -forward-unknown-to-host-compiler
+    - --expt-relaxed-constexpr
+    - --generate-code=*
+    - -rdc=*
+    - -Xptxas=-v
+    - -ccbin=*
