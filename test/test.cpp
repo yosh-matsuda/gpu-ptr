@@ -591,8 +591,26 @@ public:
     __host__ __device__ decltype(auto) get_int() const { return std::get<0>(*this); }
     __host__ __device__ decltype(auto) get_double() const { return std::get<1>(*this); }
     using base::operator=;
+    template <class U1, class U2>
+    custom_tuple_base(const custom_tuple_base<U1, U2>& that) : base(that)
+    {
+    }
 };
 using custom_tuple = custom_tuple_base<int, double>;
+
+template <class... TTypes, class... UTypes>
+requires requires { typename custom_tuple_base<std::common_type_t<TTypes, UTypes>...>; }
+struct std::common_type<custom_tuple_base<TTypes...>, custom_tuple_base<UTypes...>>
+{
+    using type = custom_tuple_base<std::common_type_t<TTypes, UTypes>...>;
+};
+
+template <class... TTypes, class... UTypes, template <class> class TQual, template <class> class UQual>
+requires requires { typename custom_tuple_base<std::common_reference_t<TQual<TTypes>, UQual<UTypes>>...>; }
+struct std::basic_common_reference<custom_tuple_base<TTypes...>, custom_tuple_base<UTypes...>, TQual, UQual>
+{
+    using type = custom_tuple_base<std::common_reference_t<TQual<TTypes>, UQual<UTypes>>...>;
+};
 
 template <typename SoaPtr>
 __global__ void test_structure_of_arrays_kernel(SoaPtr x)
@@ -672,8 +690,7 @@ TEST(gpu_smart_ptr, soa_ptr)
     static_assert(std::ranges::sized_range<soa_ptr<custom_tuple>>);
     static_assert(std::ranges::random_access_range<soa_ptr<custom_tuple>>);
 
-    // This should work: need std::common_reference customization point?
-    // static_assert(std::ranges::input_range<const soa_ptr<custom_tuple>>);
+    static_assert(std::ranges::random_access_range<const soa_ptr<custom_tuple>>);
 
     auto v = std::vector<custom_tuple>{{0, 0.5}, {1, 1.5}, {2, 2.5}, {3, 3.5}};
     {
@@ -743,8 +760,7 @@ TEST(gpu_smart_ptr, unified_soa_ptr)
     static_assert(std::ranges::sized_range<unified_soa_ptr<custom_tuple>>);
     static_assert(std::ranges::random_access_range<unified_soa_ptr<custom_tuple>>);
 
-    // This should work: need std::common_reference customization point?
-    // static_assert(std::ranges::input_range<const unified_soa_ptr<custom_tuple>>);
+    static_assert(std::ranges::random_access_range<const unified_soa_ptr<custom_tuple>>);
 
     auto v = std::vector<custom_tuple>{{0, 0.5}, {1, 1.5}, {2, 2.5}, {3, 3.5}};
     {
@@ -810,7 +826,7 @@ TEST(gpu_smart_ptr, jagged_array)
     static_assert(std::ranges::random_access_range<jagged_array<unified_array_ptr<int>>>);
     static_assert(std::ranges::random_access_range<const jagged_array<unified_array_ptr<int>>>);
     static_assert(std::ranges::random_access_range<jagged_array<unified_soa_ptr<custom_tuple>>>);
-    // static_assert(std::ranges::random_access_range<const jagged_array<unified_soa_ptr<custom_tuple>>>); // FIXME
+    static_assert(std::ranges::random_access_range<const jagged_array<unified_soa_ptr<custom_tuple>>>);
 
     {
         auto x = jagged_array<unified_array_ptr<int>>(std::vector{3, 1, 4, 3, 0});
