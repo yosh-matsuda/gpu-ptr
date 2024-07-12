@@ -1298,6 +1298,23 @@ namespace gpu_smart_ptr
         {
             return std::get<0>(lhs.ptrs_) <=> std::get<0>(rhs.ptrs_);
         }
+
+        __host__ __device__ friend auto iter_move(const soa_iterator& x)
+        {
+            return std::apply(
+                [](auto*... ptrs) {
+                    using RetType = std::remove_cvref_t<decltype(x)>::value_type;
+                    return RetType(std::move(*ptrs)...);
+                },
+                x.ptrs_);
+        }
+        __host__ __device__ friend void iter_swap(const soa_iterator& lhs, const soa_iterator& rhs)
+        {
+            constexpr std::size_t Size = std::tuple_size_v<std::remove_cvref_t<decltype(lhs.ptrs_)>>;
+            [&lhs, &rhs]<std::size_t... N>(std::index_sequence<N...>) {
+                (std::swap(*std::get<N>(lhs.ptrs_), *std::get<N>(rhs.ptrs_)), ...);
+            }(std::make_index_sequence<Size>());
+        }
     };
 
     template <typename... Ts>
