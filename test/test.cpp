@@ -681,6 +681,30 @@ __global__ void test_structure_of_arrays_kernel(SoaPtr x)
     }
 }
 
+template <typename SoaPtr>
+__global__ void test_soa_iter_move(SoaPtr x1, SoaPtr x2)
+{
+    const auto grid = cooperative_groups::this_grid();
+    auto i1 = x1.begin();
+    auto i2 = x2.begin();
+    for (std::size_t n = grid.thread_rank(); n < x1.size() && n < x2.size(); n += grid.num_threads())
+    {
+        i2[n] = iter_move(i1 + n);  // called via ADL
+    }
+}
+
+template <typename SoaPtr>
+__global__ void test_soa_iter_swap(SoaPtr x1, SoaPtr x2)
+{
+    const auto grid = cooperative_groups::this_grid();
+    auto i1 = x1.begin();
+    auto i2 = x2.begin();
+    for (std::size_t n = grid.thread_rank(); n < x1.size() && n < x2.size(); n += grid.num_threads())
+    {
+        iter_swap(i1 + n, i2 + n);  // called via ADL
+    }
+}
+
 TEST(gpu_smart_ptr, soa_ptr)
 {
     static_assert(std::ranges::sized_range<soa_ptr<int, double>>);
@@ -748,6 +772,45 @@ TEST(gpu_smart_ptr, soa_ptr)
         EXPECT_EQ((sizeof(double) + sizeof(int)) * x.size(), shared_size);
 
         CALL_KERNEL_SYNC((test_structure_of_arrays_kernel<<<1, gpu_max_threads, shared_size>>>(x)));
+    }
+
+    {
+        auto x1 = soa_ptr<int, double>(v);
+        auto x2 = soa_ptr<int, double>(v.size());
+
+        test_soa_iter_move<<<1, gpu_max_threads>>>(x1, x2);
+
+        auto v2 = x2.to<std::vector>();
+
+        EXPECT_EQ(v.size(), v2.size());
+        for (std::size_t i = 0; i < v.size(); ++i)
+        {
+            EXPECT_EQ(v[i].get_int(), std::get<0>(v2[i]));
+            EXPECT_EQ(v[i].get_double(), std::get<1>(v2[i]));
+        }
+    }
+    {
+        auto v1 = std::vector<custom_tuple>{{0, 0.5}, {1, 1.5}, {2, 2.5}, {3, 3.5}};
+        auto v2 = std::vector<custom_tuple>{{4, 4.5}, {5, 5.5}, {6, 6.5}, {7, 7.5}};
+
+        auto x1 = soa_ptr<int, double>(v1);
+        auto x2 = soa_ptr<int, double>(v2);
+
+        test_soa_iter_swap<<<1, gpu_max_threads>>>(x1, x2);
+
+        auto w1 = x1.to<std::vector>();
+        auto w2 = x2.to<std::vector>();
+
+        EXPECT_EQ(v2.size(), w1.size());
+        EXPECT_EQ(v1.size(), w2.size());
+        for (std::size_t i = 0; i < w1.size(); ++i)
+        {
+            EXPECT_EQ(v2[i].get_int(), std::get<0>(w1[i]));
+            EXPECT_EQ(v2[i].get_double(), std::get<1>(w1[i]));
+
+            EXPECT_EQ(v1[i].get_int(), std::get<0>(w2[i]));
+            EXPECT_EQ(v1[i].get_double(), std::get<1>(w2[i]));
+        }
     }
 }
 
