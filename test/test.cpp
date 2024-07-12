@@ -689,7 +689,7 @@ TEST(gpu_smart_ptr, soa_ptr)
     static_assert(std::ranges::random_access_range<soa_ptr<std::tuple<int, double>>>);
     static_assert(std::ranges::sized_range<soa_ptr<custom_tuple>>);
     static_assert(std::ranges::random_access_range<soa_ptr<custom_tuple>>);
-
+    static_assert(std::ranges::sized_range<const soa_ptr<custom_tuple>>);
     static_assert(std::ranges::random_access_range<const soa_ptr<custom_tuple>>);
 
     auto v = std::vector<custom_tuple>{{0, 0.5}, {1, 1.5}, {2, 2.5}, {3, 3.5}};
@@ -759,7 +759,7 @@ TEST(gpu_smart_ptr, unified_soa_ptr)
     static_assert(std::ranges::random_access_range<unified_soa_ptr<std::tuple<int, double>>>);
     static_assert(std::ranges::sized_range<unified_soa_ptr<custom_tuple>>);
     static_assert(std::ranges::random_access_range<unified_soa_ptr<custom_tuple>>);
-
+    static_assert(std::ranges::sized_range<const unified_soa_ptr<custom_tuple>>);
     static_assert(std::ranges::random_access_range<const unified_soa_ptr<custom_tuple>>);
 
     auto v = std::vector<custom_tuple>{{0, 0.5}, {1, 1.5}, {2, 2.5}, {3, 3.5}};
