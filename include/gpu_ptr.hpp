@@ -49,22 +49,10 @@
 #define SIGSEGV_DEPRECATED [[deprecated("Cannot access GPU memory directly")]]
 #endif
 
-#ifdef NDEBUG
-inline std::size_t gpu_memory_usage = 0UL;
-#define INCR_GPU_MEORY_USAGE(x) (gpu_smart_ptr::detail::gpu_memory_usage += (x))
-#define DECR_GPU_MEORY_USAGE(x) (gpu_smart_ptr::detail::gpu_memory_usage -= (x))
-#define GPU_MEMORY_USAGE_EQ(x) (gpu_smart_ptr::detail::gpu_memory_usage == (x))
-#else
-#define INCR_GPU_MEORY_USAGE(x) void(x)
-#define DECR_GPU_MEORY_USAGE(x) void(x)
-#define GPU_MEMORY_USAGE_EQ(x) (true)
-#endif
-
 #define CHECK_GPU_ERROR(expr) (gpu_smart_ptr::detail::check_gpu_error(expr, __FILE__, __LINE__))
 
 namespace gpu_smart_ptr
 {
-
     template <typename ValueType>
     requires std::is_trivially_copyable_v<ValueType>
     class array_ptr;
@@ -81,6 +69,18 @@ namespace gpu_smart_ptr
 
     namespace detail
     {
+
+#ifdef NDEBUG
+#define INCR_GPU_MEORY_USAGE(x) void(x)
+#define DECR_GPU_MEORY_USAGE(x) void(x)
+#define GPU_MEMORY_USAGE_EQ(x) (true)
+#else
+        inline std::size_t gpu_memory_usage = 0UL;
+#define INCR_GPU_MEORY_USAGE(x) (gpu_smart_ptr::detail::gpu_memory_usage += (x))
+#define DECR_GPU_MEORY_USAGE(x) (gpu_smart_ptr::detail::gpu_memory_usage -= (x))
+#define GPU_MEMORY_USAGE_EQ(x) (gpu_smart_ptr::detail::gpu_memory_usage == (x))
+#endif
+
         __host__ inline void check_gpu_error(const gpuError_t e, const char* f, decltype(__LINE__) n)
         {
             if (e != gpuSuccess)
