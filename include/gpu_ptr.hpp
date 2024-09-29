@@ -409,8 +409,11 @@ namespace gpu_smart_ptr
         }
         SIGSEGV_DEPRECATED __host__ __device__ reference front() noexcept { return *begin(); }
         SIGSEGV_DEPRECATED __host__ __device__ const_reference front() const noexcept { return *begin(); }
-        SIGSEGV_DEPRECATED __host__ __device__ reference back() noexcept { return *(--end()); }
-        SIGSEGV_DEPRECATED __host__ __device__ const_reference back() const noexcept { return *(--end()); }
+        SIGSEGV_DEPRECATED __host__ __device__ reference back() noexcept { return *(data() + base::size_ - 1); }
+        SIGSEGV_DEPRECATED __host__ __device__ const_reference back() const noexcept
+        {
+            return *(data() + base::size_ - 1);
+        }
         __host__ __device__ pointer data() noexcept { return std::get<0>(base::data_); }
         __host__ __device__ pointer data() const noexcept { return std::get<0>(base::data_); }
 
@@ -706,8 +709,8 @@ namespace gpu_smart_ptr
         }
         __host__ __device__ reference front() noexcept { return *begin(); }
         __host__ __device__ const_reference front() const noexcept { return *begin(); }
-        __host__ __device__ reference back() noexcept { return *(--end()); }
-        __host__ __device__ const_reference back() const noexcept { return *(--end()); }
+        __host__ __device__ reference back() noexcept { return *(data() + base::size_ - 1); }
+        __host__ __device__ const_reference back() const noexcept { return *(data() + base::size_ - 1); }
         __host__ __device__ pointer data() noexcept { return std::get<0>(base::data_); }
         __host__ __device__ pointer data() const noexcept { return std::get<0>(base::data_); }
 
