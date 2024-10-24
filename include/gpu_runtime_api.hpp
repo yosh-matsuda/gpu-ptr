@@ -63,6 +63,24 @@ namespace gpu_smart_ptr::detail
     __host__ inline decltype(auto) gpuDeviceSynchronize() { return ::hipDeviceSynchronize(); }
     __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::hipGetDeviceCount(count); }
     __host__ inline decltype(auto) gpuGetDevice(int* device) { return ::hipGetDevice(device); }
+    __host__ inline decltype(auto) gpuStreamCreate(gpuStream_t* stream) { return ::hipStreamCreate(stream); }
+    __host__ inline decltype(auto) gpuStreamSynchronize(gpuStream_t stream) { return ::hipStreamSynchronize(stream); }
+    template <typename T>
+    __host__ decltype(auto) gpuOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks, T f, int blockSize,
+                                                                         size_t dynSharedMemPerBlk)
+    {
+        return ::hipOccupancyMaxActiveBlocksPerMultiprocessor(numBlocks, f, blockSize, dynSharedMemPerBlk);
+    }
+#ifdef __NVCC__
+    template <typename T>
+    __host__ inline decltype(auto) gpuOccupancyAvailableDynamicSMemPerBlock(size_t* dynamicSmem, T* f, int numBlocks,
+                                                                            int blockSize)
+    {
+        return hipCUDAErrorTohipError(
+            ::cudaOccupancyAvailableDynamicSMemPerBlock(dynamicSmem, f, numBlocks, blockSize));
+    }
+#endif
+    __host__ inline decltype(auto) gpuSetDevice(int device) { return ::hipSetDevice(device); }
 
 #else
 
@@ -106,6 +124,21 @@ namespace gpu_smart_ptr::detail
     __host__ inline decltype(auto) gpuDeviceSynchronize() { return ::cudaDeviceSynchronize(); }
     __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::cudaGetDeviceCount(count); }
     __host__ inline decltype(auto) gpuGetDevice(int* device) { return ::cudaGetDevice(device); }
+    __host__ inline decltype(auto) gpuStreamCreate(gpuStream_t* stream) { return ::cudaStreamCreate(stream); }
+    __host__ inline decltype(auto) gpuStreamSynchronize(gpuStream_t stream) { return ::cudaStreamSynchronize(stream); }
+    template <typename T>
+    __host__ decltype(auto) gpuOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks, T f, int blockSize,
+                                                                         size_t dynSharedMemPerBlk)
+    {
+        return ::cudaOccupancyMaxActiveBlocksPerMultiprocessor(numBlocks, f, blockSize, dynSharedMemPerBlk);
+    }
+    template <typename T>
+    __host__ inline decltype(auto) gpuOccupancyAvailableDynamicSMemPerBlock(size_t* dynamicSmem, T* f, int numBlocks,
+                                                                            int blockSize)
+    {
+        return ::cudaOccupancyAvailableDynamicSMemPerBlock(dynamicSmem, f, numBlocks, blockSize);
+    }
+    __host__ inline decltype(auto) gpuSetDevice(int device) { return ::cudaSetDevice(device); }
 #endif
 }  // namespace gpu_smart_ptr::detail
 
