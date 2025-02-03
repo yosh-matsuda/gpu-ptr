@@ -81,6 +81,7 @@ namespace gpu_smart_ptr::detail
     }
 #endif
     __host__ inline decltype(auto) gpuSetDevice(int device) { return ::hipSetDevice(device); }
+    __host__ inline decltype(auto) gpuGetLastError() { return ::hipGetLastError(); }
 
 #else
 
@@ -139,6 +140,7 @@ namespace gpu_smart_ptr::detail
         return ::cudaOccupancyAvailableDynamicSMemPerBlock(dynamicSmem, f, numBlocks, blockSize);
     }
     __host__ inline decltype(auto) gpuSetDevice(int device) { return ::cudaSetDevice(device); }
+    __host__ inline decltype(auto) gpuGetLastError() { return ::cudaGetLastError(); }
 #endif
 }  // namespace gpu_smart_ptr::detail
 
