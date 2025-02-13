@@ -417,7 +417,7 @@ namespace gpu_smart_ptr
         __host__ __device__ pointer data() noexcept { return std::get<0>(base::data_); }
         __host__ __device__ pointer data() const noexcept { return std::get<0>(base::data_); }
 
-        __host__ __device__ array_ptr() = default;
+        array_ptr() = default;
         __host__ __device__ array_ptr(const array_ptr& r) : base(r) {}
         __host__ __device__ array_ptr(array_ptr&& r) noexcept : base(std::move(r)) {}
 
@@ -714,7 +714,7 @@ namespace gpu_smart_ptr
         __host__ __device__ pointer data() noexcept { return std::get<0>(base::data_); }
         __host__ __device__ pointer data() const noexcept { return std::get<0>(base::data_); }
 
-        __host__ __device__ unified_array_ptr() = default;
+        unified_array_ptr() = default;
         __host__ __device__ unified_array_ptr(const unified_array_ptr& r) : base(r) {}
         __host__ __device__ unified_array_ptr(unified_array_ptr&& r) noexcept : base(std::move(r)) {}
 
@@ -1203,12 +1203,12 @@ namespace gpu_smart_ptr
         using value_type = Tuple<Ts...>;
         using iterator_concept = std::random_access_iterator_tag;
 
-        __host__ __device__ soa_iterator() = default;
-        __host__ __device__ soa_iterator(const soa_iterator&) = default;
-        __host__ __device__ soa_iterator(soa_iterator&&) noexcept = default;
+        soa_iterator() = default;
+        soa_iterator(const soa_iterator&) = default;
+        soa_iterator(soa_iterator&&) noexcept = default;
 
-        __host__ __device__ soa_iterator& operator=(const soa_iterator&) = default;
-        __host__ __device__ soa_iterator& operator=(soa_iterator&&) noexcept = default;
+        soa_iterator& operator=(const soa_iterator&) = default;
+        soa_iterator& operator=(soa_iterator&&) noexcept = default;
 
         __host__ __device__ explicit soa_iterator(std::tuple<Ts*...> ptrs) : ptrs_(ptrs) {}
 
@@ -1384,7 +1384,7 @@ namespace gpu_smart_ptr
             return std::get<N>(base::data_);
         }
 
-        __host__ __device__ soa_ptr() = default;
+        soa_ptr() = default;
         __host__ __device__ soa_ptr(const soa_ptr& r) : base(r) {}
         __host__ __device__ soa_ptr(soa_ptr&& r) noexcept : base(std::move(r)) {}
 
@@ -1659,7 +1659,7 @@ namespace gpu_smart_ptr
             return std::get<N>(base::data_);
         }
 
-        __host__ __device__ unified_soa_ptr() = default;
+        unified_soa_ptr() = default;
         __host__ __device__ unified_soa_ptr(const unified_soa_ptr& r) : base(r) {}
         __host__ __device__ unified_soa_ptr(unified_soa_ptr&& r) noexcept : base(std::move(r)) {}
 
@@ -1844,9 +1844,9 @@ namespace gpu_smart_ptr
         static constexpr auto has_prefetch = requires(const ArrayType& a) { a.prefetch(); };
 
     public:
-        __host__ __device__ jagged_array() = default;
-        __host__ __device__ jagged_array(const jagged_array&) = default;
-        __host__ __device__ jagged_array(jagged_array&&) noexcept = default;
+        jagged_array() = default;
+        jagged_array(const jagged_array&) = default;
+        jagged_array(jagged_array&&) noexcept = default;
 
         template <std::ranges::forward_range Range>
         requires std::ranges::sized_range<Range> &&
@@ -1880,8 +1880,8 @@ namespace gpu_smart_ptr
             }
         }
 
-        __host__ __device__ jagged_array& operator=(const jagged_array&) = default;
-        __host__ __device__ jagged_array& operator=(jagged_array&&) noexcept = default;
+        jagged_array& operator=(const jagged_array&) = default;
+        jagged_array& operator=(jagged_array&&) noexcept = default;
 
         using base::begin;
         using base::empty;
