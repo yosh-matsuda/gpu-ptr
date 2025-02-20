@@ -814,13 +814,51 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        __host__ void prefetch(int device_id) const
+        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0) const
+        {
+            assert(n + len <= base::size_);
+            if (len == 0) return;
+            CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(data() + n, sizeof(ValueType) * len, device_id, stream));
+        }
+        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        {
+            prefetch(n, len, detail::get_device_id(), stream);
+        }
+        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0) const
         {
             if (base::size_ == 0) return;
-            CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(data(), sizeof(ValueType) * base::size_, device_id));
+            CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(data(), sizeof(ValueType) * base::size_, device_id, stream));
         }
-        __host__ void prefetch_to_cpu() const { prefetch(gpuCpuDeviceId); }
-        __host__ void prefetch_to_gpu() const { prefetch(detail::get_device_id()); }
+        __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
+
+        __host__ void prefetch_to_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        {
+            prefetch(n, len, gpuCpuDeviceId, stream);
+        }
+        __host__ void prefetch_to_cpu(detail::gpuStream_t stream = 0) const { prefetch(gpuCpuDeviceId, stream); }
+
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice, int device_id) const
+        {
+            assert(n + len <= base::size_);
+            if (len == 0) return;
+            CHECK_GPU_ERROR(detail::gpuMemAdvise(data() + n, sizeof(ValueType) * len, advice, device_id));
+        }
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice) const
+        {
+            mem_advise(n, len, advice, detail::get_device_id());
+        }
+        __host__ void mem_advise(detail::gpuMemoryAdvise advice, int device_id) const
+        {
+            if (base::size_ == 0) return;
+            CHECK_GPU_ERROR(detail::gpuMemAdvise(data(), sizeof(ValueType) * base::size_, advice, device_id));
+        }
+        __host__ void mem_advise(detail::gpuMemoryAdvise advice) const { mem_advise(advice, detail::get_device_id()); }
+
+        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice) const
+        {
+            mem_advise(n, len, advice, gpuCpuDeviceId);
+        }
+        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advice) const { mem_advise(advice, gpuCpuDeviceId); }
 
         template <std::ranges::range T, typename U = std::ranges::range_value_t<T>>
         requires std::is_default_constructible_v<T> && requires(const ValueType& v) { static_cast<U>(v); }
@@ -1121,13 +1159,22 @@ namespace gpu_smart_ptr
         __host__ __device__ const_pointer get() const noexcept { return std::get<0>(base::data_); }
         __host__ __device__ explicit operator bool() const noexcept { return std::get<0>(base::data_) != nullptr; }
 
-        __host__ void prefetch(int device_id) const
+        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0) const
         {
             assert(base::size_ != 0);
-            CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(get(), sizeof(ValueType), device_id));
+            CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(get(), sizeof(ValueType), device_id, stream));
         }
-        __host__ void prefetch_to_cpu() const { prefetch(gpuCpuDeviceId); }
-        __host__ void prefetch_to_gpu() const { prefetch(detail::get_device_id()); }
+        __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
+
+        __host__ void prefetch_to_cpu(detail::gpuStream_t stream = 0) const { prefetch(gpuCpuDeviceId, stream); }
+
+        __host__ void mem_advise(detail::gpuMemoryAdvise advice, int device_id) const
+        {
+            CHECK_GPU_ERROR(detail::gpuMemAdvise(get(), sizeof(ValueType), advice, device_id));
+        }
+        __host__ void mem_advise(detail::gpuMemoryAdvise advice) const { mem_advise(advice, detail::get_device_id()); }
+
+        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advice) const { mem_advise(advice, gpuCpuDeviceId); }
 
         __device__ void reset(pointer ptr)
         requires std::is_trivially_copyable_v<ValueType>
@@ -1743,16 +1790,58 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        __host__ void prefetch(int device_id) const
+        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0) const
         {
-            if (base::size_ == 0) return;
-
-            base::tuple_for_each([this, device_id]<typename T>(T* ptr) {
-                CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(ptr, sizeof(T) * base::size_, device_id));
+            assert(n + len <= base::size_);
+            if (len == 0) return;
+            base::tuple_for_each([this, n, len, device_id, stream]<typename T>(T* ptr) {
+                CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(ptr + n, sizeof(T) * len, device_id, stream));
             });
         }
-        __host__ void prefetch_to_cpu() const { prefetch(gpuCpuDeviceId); }
-        __host__ void prefetch_to_gpu() const { prefetch(detail::get_device_id()); }
+        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        {
+            prefetch(n, len, detail::get_device_id(), stream);
+        }
+        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0) const
+        {
+            if (base::size_ == 0) return;
+            base::tuple_for_each([this, device_id, stream]<typename T>(T* ptr) {
+                CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(ptr, sizeof(T) * base::size_, device_id, stream));
+            });
+        }
+        __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
+        __host__ void prefetch_to_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        {
+            prefetch(n, len, gpuCpuDeviceId, stream);
+        }
+        __host__ void prefetch_to_cpu(detail::gpuStream_t stream = 0) const { prefetch(gpuCpuDeviceId, stream); }
+
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice, int device_id) const
+        {
+            assert(n + len <= base::size_);
+            if (len == 0) return;
+            base::tuple_for_each([this, n, len, device_id, advice]<typename T>(T* ptr) {
+                CHECK_GPU_ERROR(detail::gpuMemAdvise(ptr + n, sizeof(T) * len, advice, device_id));
+            });
+        }
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice) const
+        {
+            mem_advise(n, len, advice, detail::get_device_id());
+        }
+        __host__ void mem_advise(detail::gpuMemoryAdvise advice, int device_id) const
+        {
+            if (base::size_ == 0) return;
+            base::tuple_for_each([this, device_id, advice]<typename T>(T* ptr) {
+                CHECK_GPU_ERROR(detail::gpuMemAdvise(ptr, sizeof(T) * base::size_, advice, device_id));
+            });
+        }
+        __host__ void mem_advise(detail::gpuMemoryAdvise advice) const { mem_advise(advice, detail::get_device_id()); }
+
+        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice) const
+        {
+            mem_advise(n, len, advice, gpuCpuDeviceId);
+        }
+        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advice) const { mem_advise(advice, gpuCpuDeviceId); }
 
         template <std::ranges::range Range, typename U = std::ranges::range_value_t<Range>>
         requires std::is_default_constructible_v<Range> && std::is_constructible_v<U, Ts...>
@@ -1956,21 +2045,49 @@ namespace gpu_smart_ptr
 
         __host__ __device__ auto num_rows() const noexcept { return offsets_.size() - 1; }
 
-        __host__ void prefetch(int device_id) const
+        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0) const
         {
-            if constexpr (has_prefetch) base::prefetch(device_id);
-            offsets_.prefetch(device_id);
+            if constexpr (has_prefetch) base::prefetch(n, len, device_id, stream);
+            offsets_.prefetch(n, len, device_id, stream);
         }
-        __host__ void prefetch_to_cpu() const
+        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
         {
-            if constexpr (has_prefetch) base::prefetch_to_cpu();
-            offsets_.prefetch_to_cpu();
+            prefetch(n, len, detail::get_device_id(), stream);
         }
-        __host__ void prefetch_to_gpu() const
+        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0) const
         {
-            if constexpr (has_prefetch) base::prefetch_to_gpu();
-            offsets_.prefetch_to_gpu();
+            if constexpr (has_prefetch) base::prefetch(device_id, stream);
+            offsets_.prefetch(device_id, stream);
         }
+        __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
+
+        __host__ void prefetch_to_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        {
+            prefetch(n, len, gpuCpuDeviceId, stream);
+        }
+        __host__ void prefetch_to_cpu(detail::gpuStream_t stream = 0) const { prefetch(gpuCpuDeviceId, stream); }
+
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice, int device_id) const
+        {
+            if constexpr (has_prefetch) base::mem_advise(n, len, advice, device_id);
+            offsets_.mem_advise(n, len, advice, device_id);
+        }
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice) const
+        {
+            mem_advise(n, len, advice, detail::get_device_id());
+        }
+        __host__ void mem_advise(detail::gpuMemoryAdvise advice, int device_id) const
+        {
+            if constexpr (has_prefetch) base::mem_advise(advice, device_id);
+            offsets_.mem_advise(advice, device_id);
+        }
+        __host__ void mem_advise(detail::gpuMemoryAdvise advice) const { mem_advise(advice, detail::get_device_id()); }
+
+        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advice) const
+        {
+            mem_advise(n, len, advice, gpuCpuDeviceId);
+        }
+        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advice) const { mem_advise(advice, gpuCpuDeviceId); }
 
         [[deprecated("for debug")]] [[nodiscard]] const auto& get_offsets() const noexcept { return offsets_; }
         [[deprecated("for debug")]] [[nodiscard]] auto get_sizes() const noexcept

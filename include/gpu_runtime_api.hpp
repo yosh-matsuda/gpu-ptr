@@ -90,7 +90,16 @@ namespace gpu_smart_ptr::detail
     __host__ inline const char* gpuGetErrorName(gpuError_t gpu_error) { return ::cudaGetErrorName(gpu_error); }
     __host__ inline const char* gpuGetErrorString(gpuError_t gpu_error) { return ::cudaGetErrorString(gpu_error); }
 
-    using gpuMemcpyKind = cudaMemcpyKind;
+    using gpuMemcpyKind = ::cudaMemcpyKind;
+    enum class gpuMemoryAdvise
+    {
+        SetReadMostly = cudaMemAdviseSetReadMostly,
+        UnsetReadMostly = cudaMemAdviseUnsetReadMostly,
+        SetPreferredLocation = cudaMemAdviseSetPreferredLocation,
+        UnsetPreferredLocation = cudaMemAdviseUnsetPreferredLocation,
+        SetAccessedBy = cudaMemAdviseSetAccessedBy,
+        UnsetAccessedBy = cudaMemAdviseUnsetAccessedBy,
+    };
 #define gpuMemcpyHostToHost cudaMemcpyHostToHost
 #define gpuMemcpyHostToDevice cudaMemcpyHostToDevice
 #define gpuMemcpyDeviceToHost cudaMemcpyDeviceToHost
@@ -121,6 +130,10 @@ namespace gpu_smart_ptr::detail
                                                        gpuStream_t stream = 0)
     {
         return ::cudaMemPrefetchAsync(devPtr, count, dstDevice, stream);
+    }
+    __host__ inline decltype(auto) gpuMemAdvise(const void* devPtr, size_t count, gpuMemoryAdvise advice, int device)
+    {
+        return ::cudaMemAdvise(devPtr, count, static_cast<cudaMemoryAdvise>(advice), device);
     }
     __host__ inline decltype(auto) gpuDeviceSynchronize() { return ::cudaDeviceSynchronize(); }
     __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::cudaGetDeviceCount(count); }
