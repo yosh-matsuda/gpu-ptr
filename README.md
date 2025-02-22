@@ -90,7 +90,7 @@ __global__ void func(unified_array<Data> data_array)
 func<<<1, 1>>>(data_array);
 
 // Prefetch data to CPU
-data_array.prefetch_to_cpu();
+data_array.prefetch_cpu();
 ```
 
 Conversion between CPU and GPU arrays:
