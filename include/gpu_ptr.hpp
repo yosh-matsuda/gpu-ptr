@@ -872,6 +872,10 @@ namespace gpu_smart_ptr
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(data(), sizeof(ValueType) * base::size_, device_id, stream));
+            if constexpr (has_prefetch)
+            {
+                for (std::size_t i = 0; i < base::size_; ++i) data()[i].prefetch(device_id, stream);
+            }
         }
         __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
 
@@ -916,7 +920,6 @@ namespace gpu_smart_ptr
         requires std::is_default_constructible_v<T> && requires(const ValueType& v) { static_cast<U>(v); }
         __host__ T to() const
         {
-            prefetch_cpu();
             if constexpr (gpu_array_ptr<T>)
             {
                 // array_ptr<U> or unified_array_ptr<U>
