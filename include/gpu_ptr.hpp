@@ -31,6 +31,10 @@
 #include <tuple>
 #include <vector>
 
+#ifdef GPU_PTR_DEBUG
+#include <nameof.hpp>
+#endif
+
 #if defined(NDEBUG_DEVICE_CODE_STL)
 #undef NDEBUG_DEVICE_CODE_STL
 #undef NDEBUG
@@ -70,15 +74,15 @@ namespace gpu_smart_ptr
     namespace detail
     {
 
-#ifdef NDEBUG
-#define INCR_GPU_MEORY_USAGE(x) void(x)
-#define DECR_GPU_MEORY_USAGE(x) void(x)
-#define GPU_MEMORY_USAGE_EQ(x) (true)
-#else
+#ifdef GPU_PTR_DEBUG
         inline std::size_t gpu_memory_usage = 0UL;
 #define INCR_GPU_MEORY_USAGE(x) (gpu_smart_ptr::detail::gpu_memory_usage += (x))
 #define DECR_GPU_MEORY_USAGE(x) (gpu_smart_ptr::detail::gpu_memory_usage -= (x))
 #define GPU_MEMORY_USAGE_EQ(x) (gpu_smart_ptr::detail::gpu_memory_usage == (x))
+#else
+#define INCR_GPU_MEORY_USAGE(x) void(x)
+#define DECR_GPU_MEORY_USAGE(x) void(x)
+#define GPU_MEMORY_USAGE_EQ(x) (true)
 #endif
 
         __host__ inline void check_gpu_error(const gpuError_t e, [[maybe_unused]] const char* f,
@@ -149,10 +153,15 @@ namespace gpu_smart_ptr
                 // delete objects
                 if (--*ref_count_ == 0)
                 {
+#ifdef GPU_PTR_DEBUG
+                    std::cout << *ref_count_
+                              << " gpuFree: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...) << size_
+                              << '\n';
+#endif
+
                     // do not throw in destructor
                     try
                     {
-                        // std::cout << "gpuFree: " << NAMEOF_FULL_TYPE(ValueType) << ' ' << size_ << '\n';
                         if constexpr (Unified)
                         {
                             // call destructor explicitly for unified memory
@@ -161,6 +170,10 @@ namespace gpu_smart_ptr
 
                         base::tuple_for_each([](auto* ptr) { CHECK_GPU_ERROR(gpuFree(ptr)); });
                         (DECR_GPU_MEORY_USAGE(sizeof(ValueTypes) * size_), ...);  // for debug
+
+#ifndef _CLANGD                                                                   // clangd crashes with this code
+                        delete ref_count_;
+#endif
                     }
                     catch (std::exception& e)
                     {
@@ -172,9 +185,6 @@ namespace gpu_smart_ptr
                         std::cerr << "gpuFree failed\n";
                         std::terminate();
                     }
-#ifndef _CLANGD  // clangd crashes with this code
-                    delete ref_count_;
-#endif
                 }
 
                 // init variables
@@ -192,13 +202,27 @@ namespace gpu_smart_ptr
                 data_ = r.data_;
                 ref_count_ = r.ref_count_;
 #ifndef GPU_DEVICE_COMPILE
-                if (ref_count_ != nullptr) ++*ref_count_;
+                if (ref_count_ != nullptr)
+                {
+                    ++*ref_count_;
+#ifdef GPU_PTR_DEBUG
+                    std::cout << *ref_count_ << " copied: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
+                              << size_ << '\n';
+#endif
+                }
 #endif
                 return *this;
             }
             __host__ __device__ base& operator=(base&& r) noexcept
             {
-                this->operator=(r);
+#ifndef GPU_DEVICE_COMPILE
+                free();
+#endif
+
+                size_ = r.size_;
+                data_ = r.data_;
+                ref_count_ = r.ref_count_;
+
                 r.init();
                 return *this;
             }
@@ -207,7 +231,14 @@ namespace gpu_smart_ptr
             __host__ __device__ base(const base& r) : size_(r.size_), data_(r.data_), ref_count_(r.ref_count_)
             {
 #ifndef GPU_DEVICE_COMPILE
-                if (ref_count_ != nullptr) ++*ref_count_;
+                if (ref_count_ != nullptr)
+                {
+                    ++*ref_count_;
+#ifdef GPU_PTR_DEBUG
+                    std::cout << *ref_count_ << " copied: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
+                              << size_ << '\n';
+#endif
+                }
 #endif
             }
             __host__ __device__ base(base&& r) noexcept : size_(r.size_), data_(r.data_), ref_count_(r.ref_count_)
