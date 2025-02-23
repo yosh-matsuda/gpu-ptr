@@ -29,6 +29,15 @@ namespace gpu_smart_ptr::detail
     __host__ inline const char* gpuGetErrorString(gpuError_t gpu_error) { return ::hipGetErrorString(gpu_error); }
 
     using gpuMemcpyKind = ::hipMemcpyKind;
+    enum class gpuMemoryAdvise
+    {
+        SetReadMostly = hipMemAdviseSetReadMostly,
+        UnsetReadMostly = hipMemAdviseUnsetReadMostly,
+        SetPreferredLocation = hipMemAdviseSetPreferredLocation,
+        UnsetPreferredLocation = hipMemAdviseUnsetPreferredLocation,
+        SetAccessedBy = hipMemAdviseSetAccessedBy,
+        UnsetAccessedBy = hipMemAdviseUnsetAccessedBy,
+    };
 #define gpuMemcpyHostToHost hipMemcpyHostToHost
 #define gpuMemcpyHostToDevice hipMemcpyHostToDevice
 #define gpuMemcpyDeviceToHost hipMemcpyDeviceToHost
@@ -59,6 +68,10 @@ namespace gpu_smart_ptr::detail
                                                        gpuStream_t stream = 0)
     {
         return ::hipMemPrefetchAsync(dev_ptr, count, device, stream);
+    }
+    __host__ inline decltype(auto) gpuMemAdvise(const void* devPtr, size_t count, gpuMemoryAdvise advice, int device)
+    {
+        return ::hipMemAdvise(devPtr, count, static_cast<hipMemoryAdvise>(advice), device);
     }
     __host__ inline decltype(auto) gpuDeviceSynchronize() { return ::hipDeviceSynchronize(); }
     __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::hipGetDeviceCount(count); }
