@@ -854,67 +854,89 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0,
+                               bool recursive = true) const
         {
             assert(n + len <= base::size_);
             if (len == 0) return;
             CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(data() + n, sizeof(ValueType) * len, device_id, stream));
             if constexpr (has_prefetch)
             {
-                for (auto i = n; i < n + len; ++i) data()[i].prefetch(device_id, stream);
+                if (recursive)
+                    for (auto i = n; i < n + len; ++i) data()[i].prefetch(device_id, stream, recursive);
             }
         }
-        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+                               bool recursive = true) const
         {
-            prefetch(n, len, detail::get_device_id(), stream);
+            prefetch(n, len, detail::get_device_id(), stream, recursive);
         }
-        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0, bool recursive = true) const
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(data(), sizeof(ValueType) * base::size_, device_id, stream));
             if constexpr (has_prefetch)
             {
-                for (std::size_t i = 0; i < base::size_; ++i) data()[i].prefetch(device_id, stream);
+                if (recursive)
+                    for (std::size_t i = 0; i < base::size_; ++i) data()[i].prefetch(device_id, stream, recursive);
             }
         }
-        __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
-
-        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(detail::gpuStream_t stream = 0, bool recursive = true) const
         {
-            prefetch(n, len, gpuCpuDeviceId, stream);
+            prefetch(detail::get_device_id(), stream, recursive);
         }
-        __host__ void prefetch_cpu(detail::gpuStream_t stream = 0) const { prefetch(gpuCpuDeviceId, stream); }
 
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id) const
+        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+                                   bool recursive = true) const
+        {
+            prefetch(n, len, gpuCpuDeviceId, stream, recursive);
+        }
+        __host__ void prefetch_cpu(detail::gpuStream_t stream = 0, bool recursive = true) const
+        {
+            prefetch(gpuCpuDeviceId, stream, recursive);
+        }
+
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id,
+                                 bool recursive = true) const
         {
             assert(n + len <= base::size_);
             if (len == 0) return;
             CHECK_GPU_ERROR(detail::gpuMemAdvise(data() + n, sizeof(ValueType) * len, advise, device_id));
             if constexpr (has_mem_advise)
             {
-                for (auto i = n; i < n + len; ++i) data()[i].mem_advise(advise, device_id);
+                if (recursive)
+                    for (auto i = n; i < n + len; ++i) data()[i].mem_advise(advise, device_id, recursive);
             }
         }
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise) const
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+                                 bool recursive = true) const
         {
-            mem_advise(n, len, advise, detail::get_device_id());
+            mem_advise(n, len, advise, detail::get_device_id(), recursive);
         }
-        __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id) const
+        __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id, bool recursive = true) const
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMemAdvise(data(), sizeof(ValueType) * base::size_, advise, device_id));
             if constexpr (has_mem_advise)
             {
-                for (std::size_t i = 0; i < base::size_; ++i) data()[i].mem_advise(advise, device_id);
+                if (recursive)
+                    for (std::size_t i = 0; i < base::size_; ++i) data()[i].mem_advise(advise, device_id, recursive);
             }
         }
-        __host__ void mem_advise(detail::gpuMemoryAdvise advise) const { mem_advise(advise, detail::get_device_id()); }
-
-        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise) const
+        __host__ void mem_advise(detail::gpuMemoryAdvise advise, bool recursive = true) const
         {
-            mem_advise(n, len, advise, gpuCpuDeviceId);
+            mem_advise(advise, detail::get_device_id(), recursive);
         }
-        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advise) const { mem_advise(advise, gpuCpuDeviceId); }
+
+        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+                                     bool recursive = true) const
+        {
+            mem_advise(n, len, advise, gpuCpuDeviceId, recursive);
+        }
+        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advise, bool recursive = true) const
+        {
+            mem_advise(advise, gpuCpuDeviceId, recursive);
+        }
 
         template <std::ranges::range T, typename U = std::ranges::range_value_t<T>>
         requires std::is_default_constructible_v<T> && requires(const ValueType& v) { static_cast<U>(v); }
@@ -1219,24 +1241,38 @@ namespace gpu_smart_ptr
         __host__ __device__ const_pointer get() const noexcept { return std::get<0>(base::data_); }
         __host__ __device__ explicit operator bool() const noexcept { return std::get<0>(base::data_) != nullptr; }
 
-        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0, bool recursive = true) const
         {
             assert(base::size_ != 0);
             CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(get(), sizeof(ValueType), device_id, stream));
-            if constexpr (has_prefetch) get()->prefetch(device_id, stream);
+            if constexpr (has_prefetch)
+                if (recursive) get()->prefetch(device_id, stream, recursive);
         }
-        __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
+        __host__ void prefetch(detail::gpuStream_t stream = 0, bool recursive = true) const
+        {
+            prefetch(detail::get_device_id(), stream, recursive);
+        }
 
-        __host__ void prefetch_cpu(detail::gpuStream_t stream = 0) const { prefetch(gpuCpuDeviceId, stream); }
+        __host__ void prefetch_cpu(detail::gpuStream_t stream = 0, bool recursive = true) const
+        {
+            prefetch(gpuCpuDeviceId, stream, recursive);
+        }
 
-        __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id) const
+        __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id, bool recursive = true) const
         {
             CHECK_GPU_ERROR(detail::gpuMemAdvise(get(), sizeof(ValueType), advise, device_id));
-            if constexpr (has_mem_advise) get()->mem_advise(advise, device_id);
+            if constexpr (has_mem_advise)
+                if (recursive) get()->mem_advise(advise, device_id, recursive);
         }
-        __host__ void mem_advise(detail::gpuMemoryAdvise advise) const { mem_advise(advise, detail::get_device_id()); }
+        __host__ void mem_advise(detail::gpuMemoryAdvise advise, bool recursive = true) const
+        {
+            mem_advise(advise, detail::get_device_id(), recursive);
+        }
 
-        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advise) const { mem_advise(advise, gpuCpuDeviceId); }
+        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advise, bool recursive = true) const
+        {
+            mem_advise(advise, gpuCpuDeviceId, recursive);
+        }
 
         __device__ void reset(pointer ptr)
         requires std::is_trivially_copyable_v<ValueType>
@@ -1859,74 +1895,96 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0,
+                               bool recursive = true) const
         {
             assert(n + len <= base::size_);
             if (len == 0) return;
-            base::tuple_for_each([this, n, len, device_id, stream]<typename T>(T* ptr) {
+            base::tuple_for_each([this, n, len, device_id, stream, recursive]<typename T>(T* ptr) {
                 CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(ptr + n, sizeof(T) * len, device_id, stream));
                 if constexpr (has_prefetch<T>)
                 {
-                    for (auto i = n; i < n + len; ++i) ptr[i].prefetch(device_id, stream);
+                    if (recursive)
+                        for (auto i = n; i < n + len; ++i) ptr[i].prefetch(device_id, stream, recursive);
                 }
             });
         }
-        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+                               bool recursive = true) const
         {
-            prefetch(n, len, detail::get_device_id(), stream);
+            prefetch(n, len, detail::get_device_id(), stream, recursive);
         }
-        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0, bool recursive = true) const
         {
             if (base::size_ == 0) return;
-            base::tuple_for_each([this, device_id, stream]<typename T>(T* ptr) {
+            base::tuple_for_each([this, device_id, stream, recursive]<typename T>(T* ptr) {
                 CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(ptr, sizeof(T) * base::size_, device_id, stream));
                 if constexpr (has_prefetch<T>)
                 {
-                    for (std::size_t i = 0; i < base::size_; ++i) ptr[i].prefetch(device_id, stream);
+                    if (recursive)
+                        for (std::size_t i = 0; i < base::size_; ++i) ptr[i].prefetch(device_id, stream, recursive);
                 }
             });
         }
-        __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
-        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(detail::gpuStream_t stream = 0, bool recursive = true) const
         {
-            prefetch(n, len, gpuCpuDeviceId, stream);
+            prefetch(detail::get_device_id(), stream, recursive);
         }
-        __host__ void prefetch_cpu(detail::gpuStream_t stream = 0) const { prefetch(gpuCpuDeviceId, stream); }
+        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+                                   bool recursive = true) const
+        {
+            prefetch(n, len, gpuCpuDeviceId, stream, recursive);
+        }
+        __host__ void prefetch_cpu(detail::gpuStream_t stream = 0, bool recursive = true) const
+        {
+            prefetch(gpuCpuDeviceId, stream, recursive);
+        }
 
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id) const
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id,
+                                 bool recursive = true) const
         {
             assert(n + len <= base::size_);
             if (len == 0) return;
-            base::tuple_for_each([this, n, len, device_id, advise]<typename T>(T* ptr) {
+            base::tuple_for_each([this, n, len, device_id, advise, recursive]<typename T>(T* ptr) {
                 CHECK_GPU_ERROR(detail::gpuMemAdvise(ptr + n, sizeof(T) * len, advise, device_id));
                 if constexpr (has_mem_advise<T>)
                 {
-                    for (auto i = n; i < n + len; ++i) ptr[i].mem_advise(advise, device_id);
+                    if (recursive)
+                        for (auto i = n; i < n + len; ++i) ptr[i].mem_advise(advise, device_id, recursive);
                 }
             });
         }
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise) const
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+                                 bool recursive = true) const
         {
-            mem_advise(n, len, advise, detail::get_device_id());
+            mem_advise(n, len, advise, detail::get_device_id(), recursive);
         }
-        __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id) const
+        __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id, bool recursive = true) const
         {
             if (base::size_ == 0) return;
-            base::tuple_for_each([this, device_id, advise]<typename T>(T* ptr) {
+            base::tuple_for_each([this, device_id, advise, recursive]<typename T>(T* ptr) {
                 CHECK_GPU_ERROR(detail::gpuMemAdvise(ptr, sizeof(T) * base::size_, advise, device_id));
                 if constexpr (has_mem_advise<T>)
                 {
-                    for (std::size_t i = 0; i < base::size_; ++i) ptr[i].mem_advise(advise, device_id);
+                    if (recursive)
+                        for (std::size_t i = 0; i < base::size_; ++i) ptr[i].mem_advise(advise, device_id, recursive);
                 }
             });
         }
-        __host__ void mem_advise(detail::gpuMemoryAdvise advise) const { mem_advise(advise, detail::get_device_id()); }
-
-        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise) const
+        __host__ void mem_advise(detail::gpuMemoryAdvise advise, bool recursive = true) const
         {
-            mem_advise(n, len, advise, gpuCpuDeviceId);
+            mem_advise(advise, detail::get_device_id(), recursive);
         }
-        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advise) const { mem_advise(advise, gpuCpuDeviceId); }
+
+        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+                                     bool recursive = true) const
+        {
+            mem_advise(n, len, advise, gpuCpuDeviceId, recursive);
+        }
+        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advise, bool recursive = true) const
+        {
+            mem_advise(advise, gpuCpuDeviceId, recursive);
+        }
 
         template <std::ranges::range Range, typename U = std::ranges::range_value_t<Range>>
         requires std::is_default_constructible_v<Range> && std::is_constructible_v<U, Ts...>
@@ -2125,49 +2183,67 @@ namespace gpu_smart_ptr
 
         __host__ __device__ auto num_rows() const noexcept { return offsets_.size() - 1; }
 
-        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0,
+                               bool recursive = true) const
         {
-            if constexpr (has_prefetch) base::prefetch(n, len, device_id, stream);
+            if constexpr (has_prefetch) base::prefetch(n, len, device_id, stream, recursive);
             offsets_.prefetch(device_id, stream);
         }
-        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+                               bool recursive = true) const
         {
-            prefetch(n, len, detail::get_device_id(), stream);
+            prefetch(n, len, detail::get_device_id(), stream, recursive);
         }
-        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0, bool recursive = true) const
         {
-            if constexpr (has_prefetch) base::prefetch(device_id, stream);
+            if constexpr (has_prefetch) base::prefetch(device_id, stream, recursive);
             offsets_.prefetch(device_id, stream);
         }
-        __host__ void prefetch(detail::gpuStream_t stream = 0) const { prefetch(detail::get_device_id(), stream); }
-
-        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0) const
+        __host__ void prefetch(detail::gpuStream_t stream = 0, bool recursive = true) const
         {
-            prefetch(n, len, gpuCpuDeviceId, stream);
+            prefetch(detail::get_device_id(), stream, recursive);
         }
-        __host__ void prefetch_cpu(detail::gpuStream_t stream = 0) const { prefetch(gpuCpuDeviceId, stream); }
 
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id) const
+        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+                                   bool recursive = true) const
         {
-            if constexpr (has_prefetch) base::mem_advise(n, len, advise, device_id);
+            prefetch(n, len, gpuCpuDeviceId, stream, recursive);
+        }
+        __host__ void prefetch_cpu(detail::gpuStream_t stream = 0, bool recursive = true) const
+        {
+            prefetch(gpuCpuDeviceId, stream, recursive);
+        }
+
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id,
+                                 bool recursive = true) const
+        {
+            if constexpr (has_prefetch) base::mem_advise(n, len, advise, device_id, recursive);
             offsets_.mem_advise(advise, device_id);
         }
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise) const
+        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+                                 bool recursive = true) const
         {
-            mem_advise(n, len, advise, detail::get_device_id());
+            mem_advise(n, len, advise, detail::get_device_id(), recursive);
         }
-        __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id) const
+        __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id, bool recursive = true) const
         {
-            if constexpr (has_prefetch) base::mem_advise(advise, device_id);
+            if constexpr (has_prefetch) base::mem_advise(advise, device_id, recursive);
             offsets_.mem_advise(advise, device_id);
         }
-        __host__ void mem_advise(detail::gpuMemoryAdvise advise) const { mem_advise(advise, detail::get_device_id()); }
-
-        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise) const
+        __host__ void mem_advise(detail::gpuMemoryAdvise advise, bool recursive = true) const
         {
-            mem_advise(n, len, advise, gpuCpuDeviceId);
+            mem_advise(advise, detail::get_device_id(), recursive);
         }
-        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advise) const { mem_advise(advise, gpuCpuDeviceId); }
+
+        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+                                     bool recursive = true) const
+        {
+            mem_advise(n, len, advise, gpuCpuDeviceId, recursive);
+        }
+        __host__ void mem_advise_cpu(detail::gpuMemoryAdvise advise, bool recursive = true) const
+        {
+            mem_advise(advise, gpuCpuDeviceId, recursive);
+        }
 
         [[deprecated("for debug")]] [[nodiscard]] const auto& get_offsets() const noexcept { return offsets_; }
         [[deprecated("for debug")]] [[nodiscard]] auto get_sizes() const noexcept
