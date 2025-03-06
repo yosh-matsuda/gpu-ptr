@@ -71,6 +71,14 @@ namespace gpu_smart_ptr
         constexpr explicit default_init_tag(tag) {}
     } default_init{default_init_tag::tag{}};
 
+    inline constexpr struct null_init_tag
+    {
+        struct tag
+        {
+        };
+        constexpr explicit null_init_tag(tag) {}
+    } null_init{null_init_tag::tag{}};
+
     namespace detail
     {
 
@@ -1058,6 +1066,8 @@ namespace gpu_smart_ptr
             }
         }
 
+        __host__ explicit value(null_init_tag) : base() {}
+
         __host__ explicit value(const value_type& r) : base(1)
         {
             CHECK_GPU_ERROR(detail::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type)));
@@ -1120,14 +1130,12 @@ namespace gpu_smart_ptr
 #endif
         __device__ void reset(pointer ptr)
         {
-            assert(ptr != nullptr);
-
             // no need to be freed on GPU
             base::init();
 
             // ref_count_ does not need to be set because it is not used on GPU
             std::get<0>(base::data_) = ptr;
-            base::size_ = 1;
+            if (ptr != nullptr) base::size_ = 1;
         }
 
         __device__ pointer move_to(pointer gpu_ptr, bool is_local = false)
@@ -1195,6 +1203,8 @@ namespace gpu_smart_ptr
             std::ranges::uninitialized_default_construct_n(get(), 1);
         }
 
+        __host__ explicit unified_value(null_init_tag) : base() {}
+
         __host__ explicit unified_value(const ValueType& r) : base(1)
         {
             CHECK_GPU_ERROR(
@@ -1243,7 +1253,7 @@ namespace gpu_smart_ptr
 
         __host__ void prefetch(int device_id, detail::gpuStream_t stream = 0, bool recursive = true) const
         {
-            assert(base::size_ != 0);
+            if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMemPrefetchAsync(get(), sizeof(ValueType), device_id, stream));
             if constexpr (has_prefetch)
                 if (recursive) get()->prefetch(device_id, stream, recursive);
@@ -1260,6 +1270,7 @@ namespace gpu_smart_ptr
 
         __host__ void mem_advise(detail::gpuMemoryAdvise advise, int device_id, bool recursive = true) const
         {
+            if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMemAdvise(get(), sizeof(ValueType), advise, device_id));
             if constexpr (has_mem_advise)
                 if (recursive) get()->mem_advise(advise, device_id, recursive);
@@ -1277,14 +1288,12 @@ namespace gpu_smart_ptr
         __device__ void reset(pointer ptr)
         requires std::is_trivially_copyable_v<ValueType>
         {
-            assert(ptr != nullptr);
-
             // no need to be freed on GPU
             base::init();
 
             // ref_count_ does not need to be set because it is not used on GPU
             std::get<0>(base::data_) = ptr;
-            base::size_ = 1;
+            if (ptr != nullptr) base::size_ = 1;
         }
 
         __device__ pointer move_to(pointer gpu_ptr, bool is_local = false)
