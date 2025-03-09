@@ -1,8 +1,8 @@
 /*===================================================*
-|  GPU smart pointer (gpu-smart-ptr) version v0.0.1  |
+|  GPU smart pointer (gpu-smart-ptr) version v0.1.0  |
 |  https://github.com/yosh-matsuda/gpu-ptr           |
 |                                                    |
-|  Copyright (c) 2024 Yoshiki Matsuda @yosh-matsuda  |
+|  Copyright (c) 2025 Yoshiki Matsuda @yosh-matsuda  |
 |                                                    |
 |  This software is released under the MIT License.  |
 |  https://opensource.org/license/mit/               |
@@ -26,7 +26,6 @@
 #include <memory>
 #include <numeric>
 #include <ranges>
-#include <sstream>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -53,7 +52,11 @@
 #define SIGSEGV_DEPRECATED [[deprecated("Cannot access GPU memory directly")]]
 #endif
 
-#define CHECK_GPU_ERROR(expr) (gpu_smart_ptr::detail::check_gpu_error(expr, __FILE__, __LINE__))
+#ifdef USE_32BIT_GPU_SIZE_TYPE
+#define GPU_SIZE_TYPE std::uint32_t
+#else
+#define GPU_SIZE_TYPE std::size_t
+#endif
 
 namespace gpu_smart_ptr
 {
@@ -93,22 +96,6 @@ namespace gpu_smart_ptr
 #define GPU_MEMORY_USAGE_EQ(x) (true)
 #endif
 
-        __host__ inline void check_gpu_error(const gpuError_t e, [[maybe_unused]] const char* f,
-                                             [[maybe_unused]] decltype(__LINE__) n)
-        {
-            if (e != gpuSuccess)
-            {
-                std::stringstream s;
-#ifdef NDEBUG
-                s << gpuGetErrorName(e) << " (" << static_cast<unsigned>(e) << "): " << gpuGetErrorString(e);
-#else
-                s << gpuGetErrorName(e) << " (" << static_cast<unsigned>(e) << ")@" << f << "#L" << n << ": "
-                  << gpuGetErrorString(e);
-#endif
-                throw std::runtime_error{s.str()};
-            }
-        }
-
         __host__ inline int get_device_count()
         {
             int device_count;
@@ -129,14 +116,12 @@ namespace gpu_smart_ptr
         class base
         {
         public:
-#pragma region std::array like implementations
-            using size_type = std::size_t;
+            using size_type = GPU_SIZE_TYPE;
             using difference_type = std::ptrdiff_t;
 
             __host__ __device__ size_type size() const noexcept { return size_; }
             __host__ __device__ size_type max_size() const noexcept { return size_; }
             __host__ __device__ bool empty() const noexcept { return size_ == 0; }
-#pragma endregion std::array like implementations
 
         protected:
             size_type size_ = 0U;
@@ -162,9 +147,8 @@ namespace gpu_smart_ptr
                 if (--*ref_count_ == 0)
                 {
 #ifdef GPU_PTR_DEBUG
-                    std::cout << *ref_count_
-                              << " gpuFree: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...) << size_
-                              << '\n';
+                    std::cout << " gpuFree: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
+                              << ", size: " << size_ << ", refcount: " << *ref_count_ << '\n';
 #endif
 
                     // do not throw in destructor
@@ -214,8 +198,8 @@ namespace gpu_smart_ptr
                 {
                     ++*ref_count_;
 #ifdef GPU_PTR_DEBUG
-                    std::cout << *ref_count_ << " copied: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
-                              << size_ << '\n';
+                    std::cout << " copied: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
+                              << ", size: " << size_ << ", refcount: " << *ref_count_ << '\n';
 #endif
                 }
 #endif
@@ -243,8 +227,8 @@ namespace gpu_smart_ptr
                 {
                     ++*ref_count_;
 #ifdef GPU_PTR_DEBUG
-                    std::cout << *ref_count_ << " copied: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
-                              << size_ << '\n';
+                    std::cout << " copied: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
+                              << ", size: " << size_ << ", refcount: " << *ref_count_ << '\n';
 #endif
                 }
 #endif
@@ -275,52 +259,6 @@ namespace gpu_smart_ptr
             __host__ __device__ void tuple_for_each(auto&& f)
             {
                 std::apply([&f](auto&... args) { (f(args), ...); }, data_);
-            }
-
-        public:
-            template <std::size_t N>
-            requires std::is_trivially_destructible_v<element_type<N>>
-            __device__ element_type<N>* move_to(element_type<N>* dst,
-                                                bool is_local = false)  // TODO: use __isLocal(this)
-            {
-                using ValueType = element_type<N>;
-
-                // must be aligned
-                assert(reinterpret_cast<std::uintptr_t>(dst) % alignof(ValueType) == 0);
-
-                ValueType*& src = std::get<N>(data_);
-                const auto block = cooperative_groups::this_thread_block();
-                assert(size_ + block.size() <= std::numeric_limits<std::uint32_t>::max());
-                const auto size = static_cast<std::uint32_t>(size_);
-
-                for (auto i = block.thread_rank(); i < size; i += block.size())
-                {
-                    new (dst + i) ValueType(src[i]);
-                }
-
-                // NOTE: HIP does not provide __isLocal
-                if (is_local)
-                {
-                    // reset on each thread
-                    src = dst;
-                }
-                else
-                {
-                    // need sync and reset only on the first thread
-                    block.sync();
-                    if (block.thread_rank() == 0) src = dst;
-                }
-
-                return dst + size;
-            }
-
-            template <std::size_t N>
-            __host__ std::pair<std::uintptr_t, std::uintptr_t> alignment(std::uintptr_t addr) const
-            {
-                using ValueType = std::tuple_element_t<N, std::tuple<ValueTypes...>>;
-                const auto padding = addr % alignof(ValueType);
-                if (padding != 0) addr += alignof(ValueType) - padding;
-                return {addr, addr + sizeof(ValueType) * size_};
             }
         };
 
@@ -681,16 +619,6 @@ namespace gpu_smart_ptr
         }
 
         __host__ void reset() { base::free(); }
-
-        __device__ pointer move_to(pointer gpu_ptr, bool is_local = false)
-        {
-            return base::template move_to<0>(gpu_ptr, is_local);
-        }
-
-        __host__ std::pair<std::uintptr_t, std::uintptr_t> alignment(std::uintptr_t addr) const
-        {
-            return base::template alignment<0>(addr);
-        }
     };
 
     template <typename ValueType>
@@ -729,8 +657,8 @@ namespace gpu_smart_ptr
         using pointer = value_type*;
         using const_pointer = const value_type*;
 
-        __host__ __device__ const_reference operator[](std::size_t i) const noexcept { return data()[i]; };
-        __host__ __device__ reference operator[](std::size_t i) noexcept { return data()[i]; }
+        __host__ __device__ const_reference operator[](base::size_type i) const noexcept { return data()[i]; };
+        __host__ __device__ reference operator[](base::size_type i) noexcept { return data()[i]; }
         __host__ __device__ iterator begin() noexcept { return data(); }
         __host__ __device__ iterator end() noexcept { return data() + base::size_; }
         __host__ __device__ iterator rbegin() noexcept { return std::reverse_iterator<iterator>(end()); }
@@ -862,7 +790,7 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0,
+        __host__ void prefetch(base::size_type n, base::size_type len, int device_id, detail::gpuStream_t stream = 0,
                                bool recursive = true) const
         {
             assert(n + len <= base::size_);
@@ -874,7 +802,7 @@ namespace gpu_smart_ptr
                     for (auto i = n; i < n + len; ++i) data()[i].prefetch(device_id, stream, recursive);
             }
         }
-        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+        __host__ void prefetch(base::size_type n, base::size_type len, detail::gpuStream_t stream = 0,
                                bool recursive = true) const
         {
             prefetch(n, len, detail::get_device_id(), stream, recursive);
@@ -894,7 +822,7 @@ namespace gpu_smart_ptr
             prefetch(detail::get_device_id(), stream, recursive);
         }
 
-        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+        __host__ void prefetch_cpu(base::size_type n, base::size_type len, detail::gpuStream_t stream = 0,
                                    bool recursive = true) const
         {
             prefetch(n, len, gpuCpuDeviceId, stream, recursive);
@@ -904,7 +832,7 @@ namespace gpu_smart_ptr
             prefetch(gpuCpuDeviceId, stream, recursive);
         }
 
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id,
+        __host__ void mem_advise(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise, int device_id,
                                  bool recursive = true) const
         {
             assert(n + len <= base::size_);
@@ -916,7 +844,7 @@ namespace gpu_smart_ptr
                     for (auto i = n; i < n + len; ++i) data()[i].mem_advise(advise, device_id, recursive);
             }
         }
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+        __host__ void mem_advise(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise,
                                  bool recursive = true) const
         {
             mem_advise(n, len, advise, detail::get_device_id(), recursive);
@@ -936,7 +864,7 @@ namespace gpu_smart_ptr
             mem_advise(advise, detail::get_device_id(), recursive);
         }
 
-        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+        __host__ void mem_advise_cpu(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise,
                                      bool recursive = true) const
         {
             mem_advise(n, len, advise, gpuCpuDeviceId, recursive);
@@ -991,7 +919,7 @@ namespace gpu_smart_ptr
         {
             return to<T>();
         }
-        __device__ void reset(pointer ptr, std::size_t size)
+        __device__ void reset(pointer ptr, base::size_type size)
         requires std::is_trivially_copyable_v<ValueType>
         {
             assert(size == 0 || ptr != nullptr);
@@ -1011,16 +939,6 @@ namespace gpu_smart_ptr
         }
 
         __host__ void reset() { base::free(); }
-
-        __device__ pointer move_to(pointer gpu_ptr, bool is_local = false)
-        {
-            return base::template move_to<0>(gpu_ptr, is_local);
-        }
-
-        __host__ std::pair<std::uintptr_t, std::uintptr_t> alignment(std::uintptr_t addr) const
-        {
-            return base::template alignment<0>(addr);
-        }
     };
 
     // deduction guide for arrays
@@ -1138,32 +1056,7 @@ namespace gpu_smart_ptr
             if (ptr != nullptr) base::size_ = 1;
         }
 
-        __device__ pointer move_to(pointer gpu_ptr, bool is_local = false)
-        {
-            // must be aligned
-            assert(reinterpret_cast<std::uintptr_t>(gpu_ptr) % alignof(ValueType) == 0);
-
-            ValueType*& src = std::get<0>(base::data_);
-
-            const auto block = cooperative_groups::this_thread_block();
-
-            if (block.thread_rank() == 0)
-            {
-                new (gpu_ptr) ValueType(*src);
-                src = gpu_ptr;
-            }
-            else if (is_local)
-            {
-                src = gpu_ptr;
-            }
-
-            return gpu_ptr + 1;
-        }
-
-        __host__ std::pair<std::uintptr_t, std::uintptr_t> alignment(std::uintptr_t addr) const
-        {
-            return base::template alignment<0>(addr);
-        }
+        __host__ void reset() { base::free(); }
     };
 
     template <typename ValueType>
@@ -1296,33 +1189,7 @@ namespace gpu_smart_ptr
             if (ptr != nullptr) base::size_ = 1;
         }
 
-        __device__ pointer move_to(pointer gpu_ptr, bool is_local = false)
-        requires std::is_trivially_destructible_v<ValueType>
-        {
-            // must be aligned
-            assert(reinterpret_cast<std::uintptr_t>(gpu_ptr) % alignof(ValueType) == 0);
-
-            ValueType*& src = std::get<0>(base::data_);
-
-            const auto block = cooperative_groups::this_thread_block();
-
-            if (block.thread_rank() == 0)
-            {
-                new (gpu_ptr) ValueType(*src);
-                src = gpu_ptr;
-            }
-            else if (is_local)
-            {
-                src = gpu_ptr;
-            }
-
-            return gpu_ptr + 1;
-        }
-
-        __host__ std::pair<std::uintptr_t, std::uintptr_t> alignment(std::uintptr_t addr) const
-        {
-            return base::template alignment<0>(addr);
-        }
+        __host__ void reset() { base::free(); }
     };
 
     namespace detail
@@ -1353,7 +1220,7 @@ namespace gpu_smart_ptr
         std::tuple<Ts*...> ptrs_;
 
     public:
-        using difference_type = std::ptrdiff_t;
+        using difference_type = std::make_signed_t<GPU_SIZE_TYPE>;
         using value_type = Tuple<Ts...>;
         using iterator_concept = std::random_access_iterator_tag;
 
@@ -1370,7 +1237,7 @@ namespace gpu_smart_ptr
         {
             return std::apply([](auto*... ptrs) { return Tuple<Ts&...>(*ptrs...); }, ptrs_);
         }
-        __host__ __device__ Tuple<Ts&...> operator[](std::size_t n) const
+        __host__ __device__ Tuple<Ts&...> operator[](GPU_SIZE_TYPE n) const
         {
             return std::apply([n](auto*... ptrs) { return Tuple<Ts&...>(ptrs[n]...); }, ptrs_);
         }
@@ -1511,18 +1378,18 @@ namespace gpu_smart_ptr
                 },
                 base::data_);
         }
-        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](std::size_t i) &
+        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](base::size_type i) &
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
         }
-        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](std::size_t i) const&
+        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](base::size_type i) const&
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
                               base::data_);
         }
-        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](std::size_t i) &&
+        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](base::size_type i) &&
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_value_type{*(ptrs + i)...}; }, base::data_);
@@ -1793,18 +1660,18 @@ namespace gpu_smart_ptr
                 },
                 base::data_);
         }
-        __host__ __device__ auto operator[](std::size_t i) &
+        __host__ __device__ auto operator[](base::size_type i) &
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
         }
-        __host__ __device__ auto operator[](std::size_t i) const&
+        __host__ __device__ auto operator[](base::size_type i) const&
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
                               base::data_);
         }
-        __host__ __device__ auto operator[](std::size_t i) &&
+        __host__ __device__ auto operator[](base::size_type i) &&
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_value_type{*(ptrs + i)...}; }, base::data_);
@@ -1904,7 +1771,7 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0,
+        __host__ void prefetch(base::size_type n, base::size_type len, int device_id, detail::gpuStream_t stream = 0,
                                bool recursive = true) const
         {
             assert(n + len <= base::size_);
@@ -1918,7 +1785,7 @@ namespace gpu_smart_ptr
                 }
             });
         }
-        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+        __host__ void prefetch(base::size_type n, base::size_type len, detail::gpuStream_t stream = 0,
                                bool recursive = true) const
         {
             prefetch(n, len, detail::get_device_id(), stream, recursive);
@@ -1939,7 +1806,7 @@ namespace gpu_smart_ptr
         {
             prefetch(detail::get_device_id(), stream, recursive);
         }
-        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+        __host__ void prefetch_cpu(base::size_type n, base::size_type len, detail::gpuStream_t stream = 0,
                                    bool recursive = true) const
         {
             prefetch(n, len, gpuCpuDeviceId, stream, recursive);
@@ -1949,7 +1816,7 @@ namespace gpu_smart_ptr
             prefetch(gpuCpuDeviceId, stream, recursive);
         }
 
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id,
+        __host__ void mem_advise(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise, int device_id,
                                  bool recursive = true) const
         {
             assert(n + len <= base::size_);
@@ -1963,7 +1830,7 @@ namespace gpu_smart_ptr
                 }
             });
         }
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+        __host__ void mem_advise(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise,
                                  bool recursive = true) const
         {
             mem_advise(n, len, advise, detail::get_device_id(), recursive);
@@ -2075,7 +1942,8 @@ namespace gpu_smart_ptr
     class jagged_array : public ArrayType
     {
         using base = ArrayType;
-        using offsets_type = unified_array_ptr<std::size_t>;
+        using size_type = typename base::size_type;
+        using offsets_type = unified_array_ptr<size_type>;
         using iterator_type = std::ranges::iterator_t<ArrayType>;
         using const_iterator_type = decltype(std::ranges::cbegin(std::declval<ArrayType&>()));
 
@@ -2090,15 +1958,15 @@ namespace gpu_smart_ptr
 
         template <std::ranges::forward_range Range>
         requires std::ranges::sized_range<Range> &&
-                     std::constructible_from<std::size_t, std::ranges::range_value_t<Range>>
+                     std::constructible_from<size_type, std::ranges::range_value_t<Range>>
         __host__ explicit jagged_array(const Range& sizes)
             : base(std::accumulate(std::ranges::begin(sizes), std::ranges::end(sizes), std::size_t{0})),
-              offsets_(std::ranges::size(sizes) + 1, default_init)
+              offsets_(std::ranges::size(sizes) + 1U, default_init)
         {
             offsets_[0] = 0;
-            for (std::size_t i = 0; const auto& s : sizes)
+            for (size_type i = 0; const auto& s : sizes)
             {
-                offsets_[i + 1] = offsets_[i] + static_cast<std::size_t>(s);
+                offsets_[i + 1] = offsets_[i] + static_cast<size_type>(s);
                 ++i;
             }
         }
@@ -2106,12 +1974,12 @@ namespace gpu_smart_ptr
         template <detail::array_convertible Range, detail::array_convertible Inner = std::ranges::range_value_t<Range>,
                   typename Element = std::ranges::range_value_t<Inner>>
         __host__ explicit jagged_array(const Range& nested_array)
-            : base(nested_array, detail::join_init), offsets_(std::ranges::size(nested_array) + 1, default_init)
+            : base(nested_array, detail::join_init), offsets_(std::ranges::size(nested_array) + 1U, default_init)
         {
             offsets_[0] = 0;
-            for (std::size_t i = 0; const auto& a : nested_array)
+            for (size_type i = 0; const auto& a : nested_array)
             {
-                offsets_[i + 1] = offsets_[i] + static_cast<std::size_t>(std::ranges::size(a));
+                offsets_[i + 1] = offsets_[i] + static_cast<size_type>(std::ranges::size(a));
                 ++i;
             }
         }
@@ -2125,12 +1993,12 @@ namespace gpu_smart_ptr
         using base::size;
         using base::operator[];
 
-        __host__ __device__ auto begin(std::size_t i) noexcept { return base::begin() + offsets_[i]; }
-        __host__ __device__ auto end(std::size_t i) noexcept { return base::begin() + offsets_[i + 1]; }
-        __host__ __device__ auto begin(std::size_t i) const noexcept { return base::begin() + offsets_[i]; }
-        __host__ __device__ auto end(std::size_t i) const noexcept { return base::begin() + offsets_[i + 1]; }
+        __host__ __device__ auto begin(size_type i) noexcept { return base::begin() + offsets_[i]; }
+        __host__ __device__ auto end(size_type i) noexcept { return base::begin() + offsets_[i + 1]; }
+        __host__ __device__ auto begin(size_type i) const noexcept { return base::begin() + offsets_[i]; }
+        __host__ __device__ auto end(size_type i) const noexcept { return base::begin() + offsets_[i + 1]; }
 
-        __host__ __device__ auto size(std::size_t i) const noexcept
+        __host__ __device__ auto size(size_type i) const noexcept
         {
             assert(i < num_rows());
             return offsets_[i + 1] - offsets_[i];
@@ -2145,45 +2013,45 @@ namespace gpu_smart_ptr
         {
             return base::data();
         }
-        __host__ __device__ auto data(std::size_t i) noexcept
+        __host__ __device__ auto data(size_type i) noexcept
         requires has_data
         {
             assert(i < num_rows());
             return base::data() + offsets_[i];
         }
-        __host__ __device__ auto data(std::size_t i) const noexcept
+        __host__ __device__ auto data(size_type i) const noexcept
         requires has_data
         {
             assert(i < num_rows());
             return base::data() + offsets_[i];
         }
 
-        __host__ __device__ decltype(auto) operator[](std::array<std::size_t, 2> idx) &
+        __host__ __device__ decltype(auto) operator[](std::array<size_type, 2> idx) &
         {
             assert(idx[0] < num_rows());
             assert(idx[1] < size(idx[0]));
             return (*this)[offsets_[idx[0]] + idx[1]];
         }
-        __host__ __device__ decltype(auto) operator[](std::array<std::size_t, 2> idx) const&
+        __host__ __device__ decltype(auto) operator[](std::array<size_type, 2> idx) const&
         {
             assert(idx[0] < num_rows());
             assert(idx[1] < size(idx[0]));
             return (*this)[offsets_[idx[0]] + idx[1]];
         }
-        __host__ __device__ decltype(auto) operator[](std::array<std::size_t, 2> idx) &&
+        __host__ __device__ decltype(auto) operator[](std::array<size_type, 2> idx) &&
         {
             assert(idx[0] < num_rows());
             assert(idx[1] < size(idx[0]));
             return (*this)[offsets_[idx[0]] + idx[1]];
         }
 
-        __host__ __device__ auto row(std::size_t i) noexcept
+        __host__ __device__ auto row(size_type i) noexcept
         {
             assert(i < num_rows());
             return std::ranges::subrange<iterator_type, iterator_type, std::ranges::subrange_kind::sized>(
                 base::begin() + offsets_[i], base::begin() + offsets_[i + 1], offsets_[i + 1] - offsets_[i]);
         }
-        __host__ __device__ auto row(std::size_t i) const noexcept
+        __host__ __device__ auto row(size_type i) const noexcept
         {
             assert(i < num_rows());
             return std::ranges::subrange<const_iterator_type, const_iterator_type, std::ranges::subrange_kind::sized>(
@@ -2192,14 +2060,13 @@ namespace gpu_smart_ptr
 
         __host__ __device__ auto num_rows() const noexcept { return offsets_.size() - 1; }
 
-        __host__ void prefetch(std::size_t n, std::size_t len, int device_id, detail::gpuStream_t stream = 0,
+        __host__ void prefetch(size_type n, size_type len, int device_id, detail::gpuStream_t stream = 0,
                                bool recursive = true) const
         {
             if constexpr (has_prefetch) base::prefetch(n, len, device_id, stream, recursive);
             offsets_.prefetch(device_id, stream);
         }
-        __host__ void prefetch(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
-                               bool recursive = true) const
+        __host__ void prefetch(size_type n, size_type len, detail::gpuStream_t stream = 0, bool recursive = true) const
         {
             prefetch(n, len, detail::get_device_id(), stream, recursive);
         }
@@ -2213,7 +2080,7 @@ namespace gpu_smart_ptr
             prefetch(detail::get_device_id(), stream, recursive);
         }
 
-        __host__ void prefetch_cpu(std::size_t n, std::size_t len, detail::gpuStream_t stream = 0,
+        __host__ void prefetch_cpu(size_type n, size_type len, detail::gpuStream_t stream = 0,
                                    bool recursive = true) const
         {
             prefetch(n, len, gpuCpuDeviceId, stream, recursive);
@@ -2223,13 +2090,13 @@ namespace gpu_smart_ptr
             prefetch(gpuCpuDeviceId, stream, recursive);
         }
 
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise, int device_id,
+        __host__ void mem_advise(size_type n, size_type len, detail::gpuMemoryAdvise advise, int device_id,
                                  bool recursive = true) const
         {
             if constexpr (has_prefetch) base::mem_advise(n, len, advise, device_id, recursive);
             offsets_.mem_advise(advise, device_id);
         }
-        __host__ void mem_advise(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+        __host__ void mem_advise(size_type n, size_type len, detail::gpuMemoryAdvise advise,
                                  bool recursive = true) const
         {
             mem_advise(n, len, advise, detail::get_device_id(), recursive);
@@ -2244,7 +2111,7 @@ namespace gpu_smart_ptr
             mem_advise(advise, detail::get_device_id(), recursive);
         }
 
-        __host__ void mem_advise_cpu(std::size_t n, std::size_t len, detail::gpuMemoryAdvise advise,
+        __host__ void mem_advise_cpu(size_type n, size_type len, detail::gpuMemoryAdvise advise,
                                      bool recursive = true) const
         {
             mem_advise(n, len, advise, gpuCpuDeviceId, recursive);
@@ -2257,9 +2124,9 @@ namespace gpu_smart_ptr
         [[deprecated("for debug")]] [[nodiscard]] const auto& get_offsets() const noexcept { return offsets_; }
         [[deprecated("for debug")]] [[nodiscard]] auto get_sizes() const noexcept
         {
-            auto result = std::vector<std::size_t>();
+            auto result = std::vector<size_type>();
             result.reserve(num_rows());
-            for (std::size_t i = 0; i < num_rows(); ++i) result.emplace_back(offsets_[i + 1] - offsets_[i]);
+            for (size_type i = 0; i < num_rows(); ++i) result.emplace_back(offsets_[i + 1] - offsets_[i]);
             return result;
         }
     };
