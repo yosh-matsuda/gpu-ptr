@@ -17,10 +17,11 @@
 #include <cuda_runtime.h>
 #endif
 
+#include <sstream>
+
 // NOLINTBEGIN
 namespace gpu_smart_ptr::detail
 {
-
 #ifdef ENABLE_HIP
 
     using gpuError_t = ::hipError_t;
@@ -168,6 +169,25 @@ namespace gpu_smart_ptr::detail
     __host__ inline decltype(auto) gpuSetDevice(int device) { return ::cudaSetDevice(device); }
     __host__ inline decltype(auto) gpuGetLastError() { return ::cudaGetLastError(); }
 #endif
+
+    __host__ inline void check_gpu_error(const gpuError_t e, [[maybe_unused]] const char* f,
+                                         [[maybe_unused]] decltype(__LINE__) n)
+    {
+        if (e != gpuSuccess)
+        {
+            std::stringstream s;
+#ifdef NDEBUG
+            s << gpuGetErrorName(e) << " (" << static_cast<unsigned>(e) << "): " << gpuGetErrorString(e);
+#else
+            s << gpuGetErrorName(e) << " (" << static_cast<unsigned>(e) << ")@" << f << "#L" << n << ": "
+              << gpuGetErrorString(e);
+#endif
+            throw std::runtime_error{s.str()};
+        }
+    }
+
 }  // namespace gpu_smart_ptr::detail
+
+#define CHECK_GPU_ERROR(expr) (gpu_smart_ptr::detail::check_gpu_error(expr, __FILE__, __LINE__))
 
 // NOLINTEND
