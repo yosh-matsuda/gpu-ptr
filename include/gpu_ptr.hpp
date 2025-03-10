@@ -52,12 +52,6 @@
 #define SIGSEGV_DEPRECATED [[deprecated("Cannot access GPU memory directly")]]
 #endif
 
-#ifdef USE_32BIT_GPU_SIZE_TYPE
-#define GPU_SIZE_TYPE std::uint32_t
-#else
-#define GPU_SIZE_TYPE std::size_t
-#endif
-
 namespace gpu_smart_ptr
 {
     template <typename ValueType>
@@ -81,6 +75,12 @@ namespace gpu_smart_ptr
         };
         constexpr explicit null_init_tag(tag) {}
     } null_init{null_init_tag::tag{}};
+
+#ifdef USE_32BIT_GPU_SIZE_TYPE
+    using size_t = std::uint32_t;
+#else
+    using size_t = std::size_t;
+#endif
 
     namespace detail
     {
@@ -111,12 +111,18 @@ namespace gpu_smart_ptr
             return device_id;
         }
 
+        inline size_t cast_size_type(std::size_t size)
+        {
+            assert(size <= std::numeric_limits<size_t>::max());
+            return static_cast<size_t>(size);
+        }
+
         template <bool Unified, typename... ValueTypes>
         requires (sizeof...(ValueTypes) > 0)
         class base
         {
         public:
-            using size_type = GPU_SIZE_TYPE;
+            using size_type = size_t;
             using difference_type = std::ptrdiff_t;
 
             __host__ __device__ size_type size() const noexcept { return size_; }
@@ -600,7 +606,7 @@ namespace gpu_smart_ptr
             return to<T>();
         }
 
-        __device__ void reset(pointer ptr, std::size_t size)
+        __device__ void reset(pointer ptr, base::size_type size)
         {
             assert(size == 0 || ptr != nullptr);
 
@@ -634,8 +640,9 @@ namespace gpu_smart_ptr
         template <detail::array_convertible Range, typename U = std::ranges::range_value_t<Range>>
         requires std::is_constructible_v<ValueType, std::ranges::range_value_t<U>>
         __host__ explicit unified_array_ptr(const Range& nested_array, detail::join_init_tag)
-            : base(std::accumulate(std::ranges::begin(nested_array), std::ranges::end(nested_array), std::size_t{0},
-                                   [](auto acc, const auto& r) { return acc + std::ranges::size(r); }))
+            : base(detail::cast_size_type(
+                  std::accumulate(std::ranges::begin(nested_array), std::ranges::end(nested_array), std::size_t{0},
+                                  [](auto acc, const auto& r) { return acc + std::ranges::size(r); })))
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -723,7 +730,7 @@ namespace gpu_smart_ptr
 
         template <detail::array_convertible T, typename U = std::ranges::range_value_t<T>>
         requires std::is_constructible_v<ValueType, U>
-        __host__ explicit unified_array_ptr(const T& r) : base(std::ranges::size(r))
+        __host__ explicit unified_array_ptr(const T& r) : base(detail::cast_size_type(std::ranges::size(r)))
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -736,7 +743,8 @@ namespace gpu_smart_ptr
             }
         }
 
-        __host__ unified_array_ptr(std::initializer_list<ValueType> r) : base(std::ranges::size(r))
+        __host__ unified_array_ptr(std::initializer_list<ValueType> r)
+            : base(detail::cast_size_type(std::ranges::size(r)))
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -1220,7 +1228,8 @@ namespace gpu_smart_ptr
         std::tuple<Ts*...> ptrs_;
 
     public:
-        using difference_type = std::make_signed_t<GPU_SIZE_TYPE>;
+        using difference_type = std::ptrdiff_t;
+        using size_type = std::size_t;
         using value_type = Tuple<Ts...>;
         using iterator_concept = std::random_access_iterator_tag;
 
@@ -1237,7 +1246,7 @@ namespace gpu_smart_ptr
         {
             return std::apply([](auto*... ptrs) { return Tuple<Ts&...>(*ptrs...); }, ptrs_);
         }
-        __host__ __device__ Tuple<Ts&...> operator[](GPU_SIZE_TYPE n) const
+        __host__ __device__ Tuple<Ts&...> operator[](size_type n) const
         {
             return std::apply([n](auto*... ptrs) { return Tuple<Ts&...>(ptrs[n]...); }, ptrs_);
         }
@@ -1438,7 +1447,7 @@ namespace gpu_smart_ptr
 
         template <std::ranges::forward_range Range, typename Element = std::ranges::range_value_t<Range>>
         requires std::ranges::sized_range<Range> && detail::assignable_to_tuple<Element, Ts...>
-        __host__ explicit soa_ptr(const Range& array) : base(std::ranges::size(array))
+        __host__ explicit soa_ptr(const Range& array) : base(detail::cast_size_type(std::ranges::size(array)))
         {
             if (base::size_ == 0) return;
 
@@ -1460,7 +1469,8 @@ namespace gpu_smart_ptr
         template <std::ranges::forward_range... Ranges>
         requires (sizeof...(Ranges) == num_arrays) && (std::ranges::sized_range<Ranges> && ...) &&
                  detail::assignable_to_tuple<std::tuple<std::ranges::range_value_t<Ranges>...>, Ts...>
-        __host__ explicit soa_ptr(const Ranges&... arrays) : base(std::max({std::ranges::size(arrays)...}))
+        __host__ explicit soa_ptr(const Ranges&... arrays)
+            : base(detail::cast_size_type(std::max({std::ranges::size(arrays)...})))
         {
             if (base::size_ == 0) return;
 
@@ -1615,8 +1625,9 @@ namespace gpu_smart_ptr
         template <detail::array_convertible Range, typename U = std::ranges::range_value_t<Range>>
         requires (detail::assignable_to_tuple<std::ranges::range_value_t<U>, Ts...>)
         __host__ explicit unified_soa_ptr(const Range& nested_array, detail::join_init_tag)
-            : base(std::accumulate(std::ranges::begin(nested_array), std::ranges::end(nested_array), std::size_t{0},
-                                   [](auto acc, const auto& r) { return acc + std::ranges::size(r); }))
+            : base(detail::cast_size_type(
+                  std::accumulate(std::ranges::begin(nested_array), std::ranges::end(nested_array), std::size_t{0},
+                                  [](auto acc, const auto& r) { return acc + std::ranges::size(r); })))
         {
             if (base::size_ == 0) return;
 
@@ -1715,7 +1726,7 @@ namespace gpu_smart_ptr
 
         template <detail::array_convertible Range, typename Element = std::ranges::range_value_t<Range>>
         requires detail::assignable_to_tuple<Element, Ts...>
-        __host__ explicit unified_soa_ptr(const Range& array) : base(std::ranges::size(array))
+        __host__ explicit unified_soa_ptr(const Range& array) : base(detail::cast_size_type(std::ranges::size(array)))
         {
             if (base::size_ == 0) return;
 
@@ -1738,7 +1749,8 @@ namespace gpu_smart_ptr
         template <detail::array_convertible... Ranges>
         requires (sizeof...(Ranges) == num_arrays) &&
                  detail::assignable_to_tuple<std::tuple<std::ranges::range_value_t<Ranges>...>, Ts...>
-        __host__ explicit unified_soa_ptr(const Ranges&... arrays) : base(std::max({std::ranges::size(arrays)...}))
+        __host__ explicit unified_soa_ptr(const Ranges&... arrays)
+            : base(detail::cast_size_type(std::max({std::ranges::size(arrays)...})))
         {
             if (base::size_ == 0) return;
 
@@ -1960,7 +1972,8 @@ namespace gpu_smart_ptr
         requires std::ranges::sized_range<Range> &&
                      std::constructible_from<size_type, std::ranges::range_value_t<Range>>
         __host__ explicit jagged_array(const Range& sizes)
-            : base(std::accumulate(std::ranges::begin(sizes), std::ranges::end(sizes), std::size_t{0})),
+            : base(detail::cast_size_type(
+                  std::accumulate(std::ranges::begin(sizes), std::ranges::end(sizes), std::size_t{0}))),
               offsets_(std::ranges::size(sizes) + 1U, default_init)
         {
             offsets_[0] = 0;
@@ -1974,12 +1987,13 @@ namespace gpu_smart_ptr
         template <detail::array_convertible Range, detail::array_convertible Inner = std::ranges::range_value_t<Range>,
                   typename Element = std::ranges::range_value_t<Inner>>
         __host__ explicit jagged_array(const Range& nested_array)
-            : base(nested_array, detail::join_init), offsets_(std::ranges::size(nested_array) + 1U, default_init)
+            : base(nested_array, detail::join_init),
+              offsets_(detail::cast_size_type(std::ranges::size(nested_array) + 1U), default_init)
         {
             offsets_[0] = 0;
             for (size_type i = 0; const auto& a : nested_array)
             {
-                offsets_[i + 1] = offsets_[i] + static_cast<size_type>(std::ranges::size(a));
+                offsets_[i + 1] = detail::cast_size_type(offsets_[i] + std::ranges::size(a));
                 ++i;
             }
         }
