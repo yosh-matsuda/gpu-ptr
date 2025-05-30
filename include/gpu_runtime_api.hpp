@@ -172,24 +172,32 @@ namespace gpu_smart_ptr::detail
     __host__ inline decltype(auto) gpuGetLastError() { return ::cudaGetLastError(); }
 #endif
 
-    __host__ inline void check_gpu_error(const gpuError_t e, [[maybe_unused]] const char* f,
-                                         [[maybe_unused]] decltype(__LINE__) n)
+    __host__ inline void check_gpu_error(const gpuError_t e)
     {
         if (e != gpuSuccess)
         {
             std::stringstream s;
-#ifdef NDEBUG
             s << gpuGetErrorName(e) << " (" << static_cast<unsigned>(e) << "): " << gpuGetErrorString(e);
-#else
+            throw std::runtime_error{s.str()};
+        }
+    }
+    __host__ inline void check_gpu_error(const gpuError_t e, const char* f, decltype(__LINE__) n)
+    {
+        if (e != gpuSuccess)
+        {
+            std::stringstream s;
             s << gpuGetErrorName(e) << " (" << static_cast<unsigned>(e) << ")@" << f << "#L" << n << ": "
               << gpuGetErrorString(e);
-#endif
             throw std::runtime_error{s.str()};
         }
     }
 
 }  // namespace gpu_smart_ptr::detail
 
+#ifdef NDEBUG
+#define CHECK_GPU_ERROR(expr) (gpu_smart_ptr::detail::check_gpu_error(expr))
+#else
 #define CHECK_GPU_ERROR(expr) (gpu_smart_ptr::detail::check_gpu_error(expr, __FILE__, __LINE__))
+#endif
 
 // NOLINTEND
