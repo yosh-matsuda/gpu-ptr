@@ -78,6 +78,7 @@ namespace gpu_smart_ptr::detail
     __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::hipGetDeviceCount(count); }
     __host__ inline decltype(auto) gpuGetDevice(int* device) { return ::hipGetDevice(device); }
     __host__ inline decltype(auto) gpuStreamCreate(gpuStream_t* stream) { return ::hipStreamCreate(stream); }
+    __host__ inline decltype(auto) gpuStreamDestroy(gpuStream_t stream) { return ::hipStreamDestroy(stream); }
     __host__ inline decltype(auto) gpuStreamSynchronize(gpuStream_t stream) { return ::hipStreamSynchronize(stream); }
     template <typename T>
     __host__ decltype(auto) gpuOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks, T f, int blockSize,
@@ -153,6 +154,7 @@ namespace gpu_smart_ptr::detail
     __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::cudaGetDeviceCount(count); }
     __host__ inline decltype(auto) gpuGetDevice(int* device) { return ::cudaGetDevice(device); }
     __host__ inline decltype(auto) gpuStreamCreate(gpuStream_t* stream) { return ::cudaStreamCreate(stream); }
+    __host__ inline decltype(auto) gpuStreamDestroy(gpuStream_t stream) { return ::cudaStreamDestroy(stream); }
     __host__ inline decltype(auto) gpuStreamSynchronize(gpuStream_t stream) { return ::cudaStreamSynchronize(stream); }
     template <typename T>
     __host__ decltype(auto) gpuOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks, T f, int blockSize,
