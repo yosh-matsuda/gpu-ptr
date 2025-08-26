@@ -591,8 +591,26 @@ public:
     __host__ __device__ decltype(auto) get_int() const { return std::get<0>(*this); }
     __host__ __device__ decltype(auto) get_double() const { return std::get<1>(*this); }
     using base::operator=;
+    template <class U1, class U2>
+    custom_tuple_base(const custom_tuple_base<U1, U2>& that) : base(that)
+    {
+    }
 };
 using custom_tuple = custom_tuple_base<int, double>;
+
+template <class... TTypes, class... UTypes>
+requires requires { typename custom_tuple_base<std::common_type_t<TTypes, UTypes>...>; }
+struct std::common_type<custom_tuple_base<TTypes...>, custom_tuple_base<UTypes...>>
+{
+    using type = custom_tuple_base<std::common_type_t<TTypes, UTypes>...>;
+};
+
+template <class... TTypes, class... UTypes, template <class> class TQual, template <class> class UQual>
+requires requires { typename custom_tuple_base<std::common_reference_t<TQual<TTypes>, UQual<UTypes>>...>; }
+struct std::basic_common_reference<custom_tuple_base<TTypes...>, custom_tuple_base<UTypes...>, TQual, UQual>
+{
+    using type = custom_tuple_base<std::common_reference_t<TQual<TTypes>, UQual<UTypes>>...>;
+};
 
 template <typename SoaPtr>
 __global__ void test_structure_of_arrays_kernel(SoaPtr x)
@@ -663,6 +681,30 @@ __global__ void test_structure_of_arrays_kernel(SoaPtr x)
     }
 }
 
+template <typename SoaPtr>
+__global__ void test_soa_iter_move(SoaPtr x1, SoaPtr x2)
+{
+    const auto grid = cooperative_groups::this_grid();
+    auto i1 = x1.begin();
+    auto i2 = x2.begin();
+    for (std::size_t n = grid.thread_rank(); n < x1.size() && n < x2.size(); n += grid.num_threads())
+    {
+        i2[n] = iter_move(i1 + n);  // called via ADL
+    }
+}
+
+template <typename SoaPtr>
+__global__ void test_soa_iter_swap(SoaPtr x1, SoaPtr x2)
+{
+    const auto grid = cooperative_groups::this_grid();
+    auto i1 = x1.begin();
+    auto i2 = x2.begin();
+    for (std::size_t n = grid.thread_rank(); n < x1.size() && n < x2.size(); n += grid.num_threads())
+    {
+        iter_swap(i1 + n, i2 + n);  // called via ADL
+    }
+}
+
 TEST(gpu_smart_ptr, soa_ptr)
 {
     static_assert(std::ranges::sized_range<soa_ptr<int, double>>);
@@ -671,9 +713,8 @@ TEST(gpu_smart_ptr, soa_ptr)
     static_assert(std::ranges::random_access_range<soa_ptr<std::tuple<int, double>>>);
     static_assert(std::ranges::sized_range<soa_ptr<custom_tuple>>);
     static_assert(std::ranges::random_access_range<soa_ptr<custom_tuple>>);
-
-    // This should work: need std::common_reference customization point?
-    // static_assert(std::ranges::input_range<const soa_ptr<custom_tuple>>);
+    static_assert(std::ranges::sized_range<const soa_ptr<custom_tuple>>);
+    static_assert(std::ranges::random_access_range<const soa_ptr<custom_tuple>>);
 
     auto v = std::vector<custom_tuple>{{0, 0.5}, {1, 1.5}, {2, 2.5}, {3, 3.5}};
     {
@@ -732,6 +773,45 @@ TEST(gpu_smart_ptr, soa_ptr)
 
         CALL_KERNEL_SYNC((test_structure_of_arrays_kernel<<<1, gpu_max_threads, shared_size>>>(x)));
     }
+
+    {
+        auto x1 = soa_ptr<int, double>(v);
+        auto x2 = soa_ptr<int, double>(v.size());
+
+        test_soa_iter_move<<<1, gpu_max_threads>>>(x1, x2);
+
+        auto v2 = x2.to<std::vector>();
+
+        EXPECT_EQ(v.size(), v2.size());
+        for (std::size_t i = 0; i < v.size(); ++i)
+        {
+            EXPECT_EQ(v[i].get_int(), std::get<0>(v2[i]));
+            EXPECT_EQ(v[i].get_double(), std::get<1>(v2[i]));
+        }
+    }
+    {
+        auto v1 = std::vector<custom_tuple>{{0, 0.5}, {1, 1.5}, {2, 2.5}, {3, 3.5}};
+        auto v2 = std::vector<custom_tuple>{{4, 4.5}, {5, 5.5}, {6, 6.5}, {7, 7.5}};
+
+        auto x1 = soa_ptr<int, double>(v1);
+        auto x2 = soa_ptr<int, double>(v2);
+
+        test_soa_iter_swap<<<1, gpu_max_threads>>>(x1, x2);
+
+        auto w1 = x1.to<std::vector>();
+        auto w2 = x2.to<std::vector>();
+
+        EXPECT_EQ(v2.size(), w1.size());
+        EXPECT_EQ(v1.size(), w2.size());
+        for (std::size_t i = 0; i < w1.size(); ++i)
+        {
+            EXPECT_EQ(v2[i].get_int(), std::get<0>(w1[i]));
+            EXPECT_EQ(v2[i].get_double(), std::get<1>(w1[i]));
+
+            EXPECT_EQ(v1[i].get_int(), std::get<0>(w2[i]));
+            EXPECT_EQ(v1[i].get_double(), std::get<1>(w2[i]));
+        }
+    }
 }
 
 TEST(gpu_smart_ptr, unified_soa_ptr)
@@ -742,9 +822,8 @@ TEST(gpu_smart_ptr, unified_soa_ptr)
     static_assert(std::ranges::random_access_range<unified_soa_ptr<std::tuple<int, double>>>);
     static_assert(std::ranges::sized_range<unified_soa_ptr<custom_tuple>>);
     static_assert(std::ranges::random_access_range<unified_soa_ptr<custom_tuple>>);
-
-    // This should work: need std::common_reference customization point?
-    // static_assert(std::ranges::input_range<const unified_soa_ptr<custom_tuple>>);
+    static_assert(std::ranges::sized_range<const unified_soa_ptr<custom_tuple>>);
+    static_assert(std::ranges::random_access_range<const unified_soa_ptr<custom_tuple>>);
 
     auto v = std::vector<custom_tuple>{{0, 0.5}, {1, 1.5}, {2, 2.5}, {3, 3.5}};
     {
@@ -810,7 +889,7 @@ TEST(gpu_smart_ptr, jagged_array)
     static_assert(std::ranges::random_access_range<jagged_array<unified_array_ptr<int>>>);
     static_assert(std::ranges::random_access_range<const jagged_array<unified_array_ptr<int>>>);
     static_assert(std::ranges::random_access_range<jagged_array<unified_soa_ptr<custom_tuple>>>);
-    // static_assert(std::ranges::random_access_range<const jagged_array<unified_soa_ptr<custom_tuple>>>); // FIXME
+    static_assert(std::ranges::random_access_range<const jagged_array<unified_soa_ptr<custom_tuple>>>);
 
     {
         auto x = jagged_array<unified_array_ptr<int>>(std::vector{3, 1, 4, 3, 0});
