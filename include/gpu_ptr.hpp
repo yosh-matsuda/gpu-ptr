@@ -54,10 +54,17 @@
 
 namespace gpu_smart_ptr
 {
-    template <typename ValueType>
+#ifdef GPU_USE_32BIT_SIZE_TYPE_DEFAULT
+    // Use 32-bit size_type for reducing register usage on GPU
+    using size_type_default = std::uint32_t;
+#else
+    using size_type_default = std::size_t;
+#endif
+
+    template <typename ValueType, typename SizeType = size_type_default>
     requires std::is_trivially_copyable_v<ValueType>
     class array_ptr;
-    template <typename ValueType>
+    template <typename ValueType, typename SizeType = size_type_default>
     class unified_array_ptr;
 
     inline constexpr struct default_init_tag
@@ -75,12 +82,6 @@ namespace gpu_smart_ptr
         };
         constexpr explicit null_init_tag(tag) {}
     } null_init{null_init_tag::tag{}};
-
-#ifdef USE_32BIT_GPU_SIZE_TYPE
-    using size_t = std::uint32_t;
-#else
-    using size_t = std::size_t;
-#endif
 
     namespace detail
     {
@@ -111,18 +112,19 @@ namespace gpu_smart_ptr
             return device_id;
         }
 
-        inline size_t cast_size_type(std::size_t size)
+        template <typename SizeType>
+        inline SizeType cast_size_type(std::size_t size)
         {
-            assert(size <= std::numeric_limits<size_t>::max());
-            return static_cast<size_t>(size);
+            assert(size <= std::numeric_limits<SizeType>::max());
+            return static_cast<SizeType>(size);
         }
 
-        template <bool Unified, typename... ValueTypes>
+        template <bool Unified, typename SizeType, typename... ValueTypes>
         requires (sizeof...(ValueTypes) > 0)
         class base
         {
         public:
-            using size_type = size_t;
+            using size_type = SizeType;
             using difference_type = std::ptrdiff_t;
 
             __host__ __device__ size_type size() const noexcept { return size_; }
@@ -135,7 +137,7 @@ namespace gpu_smart_ptr
             std::uint32_t* ref_count_ = nullptr;  // reference counter, not used on GPU
 
             template <std::size_t N>
-            using element_type = std::tuple_element_t<N, std::tuple<ValueTypes...>>;
+            using element_type = std::tuple_element_t<N, std::tuple<ValueTypes...> >;
 
             __host__ __device__ void init()
             {
@@ -271,20 +273,20 @@ namespace gpu_smart_ptr
         template <typename T>
         concept array_convertible = std::ranges::forward_range<T> && std::ranges::sized_range<T>;
 
-        template <bool Unified, typename... ValueType>
-        constexpr void is_ptr_helper(const detail::base<Unified, ValueType...>&)
+        template <bool Unified, typename SizeType, typename... ValueType>
+        constexpr void is_ptr_helper(const detail::base<Unified, SizeType, ValueType...>&)
         {
         }
-        template <typename... ValueType>
-        constexpr void is_unified_ptr_helper(const detail::base<true, ValueType...>&)
+        template <typename SizeType, typename... ValueType>
+        constexpr void is_unified_ptr_helper(const detail::base<true, SizeType, ValueType...>&)
         {
         }
-        template <bool Unified, typename ValueType>
-        constexpr void is_array_helper(const detail::base<Unified, ValueType>&)
+        template <bool Unified, typename SizeType, typename ValueType>
+        constexpr void is_array_helper(const detail::base<Unified, SizeType, ValueType>&)
         {
         }
-        template <typename ValueType>
-        constexpr void is_unified_array_helper(const detail::base<true, ValueType>&)
+        template <typename ValueType, typename SizeType>
+        constexpr void is_unified_array_helper(const detail::base<true, SizeType, ValueType>&)
         {
         }
 
@@ -308,22 +310,22 @@ namespace gpu_smart_ptr
         template <array_convertible T>
         struct unified_array_deduced<T>
         {
-            using type = unified_array_ptr<unified_array_deduced_t<std::ranges::range_value_t<T>>>;
+            using type = unified_array_ptr<unified_array_deduced_t<std::ranges::range_value_t<T> > >;
         };
 
         template <gpu_array_ptr T, template <typename...> typename U>
         struct to_range_deduced
         {
-            using type = U<std::ranges::range_value_t<T>>;
+            using type = U<std::ranges::range_value_t<T> >;
         };
         template <typename T, template <typename...> typename U>
         using to_range_deduced_t = typename to_range_deduced<T, U>::type;
 
         template <gpu_array_ptr Array, template <typename...> typename U>
-        requires gpu_array_ptr<std::ranges::range_value_t<Array>>
+        requires gpu_array_ptr<std::ranges::range_value_t<Array> >
         struct to_range_deduced<Array, U>
         {
-            using type = U<to_range_deduced_t<std::ranges::range_value_t<Array>, U>>;
+            using type = U<to_range_deduced_t<std::ranges::range_value_t<Array>, U> >;
         };
 
         inline constexpr struct join_init_tag
@@ -340,15 +342,16 @@ namespace gpu_smart_ptr
     using detail::gpu_unified_array_ptr;
     using detail::gpu_unified_smart_ptr;
 
-    template <typename ValueType>
+    template <typename ValueType, typename SizeType>
     requires std::is_trivially_copyable_v<ValueType>
-    class array_ptr : public detail::base<false, ValueType>
+    class array_ptr : public detail::base<false, SizeType, ValueType>
     {
         // TODO: range の要件を満たしたい
 
         using base = detail::base<false, ValueType>;
 
     public:
+        using size_type = SizeType;
         using value_type = ValueType;
         using reference = value_type&;
         using const_reference = const value_type&;
@@ -357,11 +360,11 @@ namespace gpu_smart_ptr
         using pointer = value_type*;
         using const_pointer = const value_type*;
 
-        SIGSEGV_DEPRECATED __host__ __device__ const_reference operator[](base::size_type i) const noexcept
+        SIGSEGV_DEPRECATED __host__ __device__ const_reference operator[](size_type i) const noexcept
         {
             return data()[i];
         };
-        SIGSEGV_DEPRECATED __host__ __device__ reference operator[](base::size_type i) noexcept { return data()[i]; }
+        SIGSEGV_DEPRECATED __host__ __device__ reference operator[](size_type i) noexcept { return data()[i]; }
         SIGSEGV_DEPRECATED __host__ __device__ iterator begin() noexcept { return data(); }
         SIGSEGV_DEPRECATED __host__ __device__ iterator end() noexcept { return data() + base::size_; }
         SIGSEGV_DEPRECATED __host__ __device__ iterator rbegin() noexcept
@@ -409,7 +412,7 @@ namespace gpu_smart_ptr
         __host__ __device__ array_ptr(const array_ptr& r) : base(r) {}
         __host__ __device__ array_ptr(array_ptr&& r) noexcept : base(std::move(r)) {}
 
-        __host__ explicit array_ptr(base::size_type size) : base(size)
+        __host__ explicit array_ptr(size_type size) : base(size)
         {
             if (base::size_ == 0) return;
             auto buf = std::make_unique<value_type[]>(base::size_);
@@ -420,7 +423,7 @@ namespace gpu_smart_ptr
                 detail::gpuMemcpy(data(), buf.get(), sizeof(value_type) * base::size_, gpuMemcpyHostToDevice));
         }
 
-        __host__ array_ptr(base::size_type size, default_init_tag) : base(size)
+        __host__ array_ptr(size_type size, default_init_tag) : base(size)
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -434,7 +437,7 @@ namespace gpu_smart_ptr
             }
         }
 
-        __host__ array_ptr(base::size_type size, const value_type& value) : base(size)
+        __host__ array_ptr(size_type size, const value_type& value) : base(size)
         {
             if (base::size_ == 0) return;
 
@@ -448,7 +451,7 @@ namespace gpu_smart_ptr
             al.deallocate(buf, base::size_);
         }
 
-        template <detail::array_convertible T, std::same_as<ValueType> U = std::ranges::range_value_t<T>>
+        template <detail::array_convertible T, std::same_as<ValueType> U = std::ranges::range_value_t<T> >
         requires std::ranges::contiguous_range<T>
         __host__ explicit array_ptr(const T& r) : base(std::ranges::size(r))
         {
@@ -460,7 +463,7 @@ namespace gpu_smart_ptr
                                               gpuMemcpyHostToDevice));
         }
 
-        template <detail::array_convertible T, typename U = std::ranges::range_value_t<T>>
+        template <detail::array_convertible T, typename U = std::ranges::range_value_t<T> >
         requires std::is_constructible_v<ValueType, U> &&
                  (!std::same_as<ValueType, U> || !std::ranges::contiguous_range<T>)
         __host__ explicit array_ptr(const T& r) : base(std::ranges::size(r))
@@ -488,7 +491,7 @@ namespace gpu_smart_ptr
                                               gpuMemcpyHostToDevice));
         }
 
-        __device__ array_ptr(pointer ptr, base::size_type size) : base(ptr, size) {}
+        __device__ array_ptr(pointer ptr, size_type size) : base(ptr, size) {}
 
         __host__ __device__ array_ptr& operator=(const array_ptr& r)
         {
@@ -506,9 +509,9 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        template <std::ranges::range T, std::same_as<ValueType> U = std::ranges::range_value_t<T>>
+        template <std::ranges::range T, std::same_as<ValueType> U = std::ranges::range_value_t<T> >
         requires (std::ranges::contiguous_range<T> &&
-                  (std::is_constructible_v<T, typename base::size_type> || std::is_default_constructible_v<T>)) ||
+                  (std::is_constructible_v<T, size_type> || std::is_default_constructible_v<T>)) ||
                  (std::is_default_constructible_v<T> &&
                   requires { std::declval<T>().push_back(std::declval<ValueType>()); })
         __host__ T to() const
@@ -520,8 +523,8 @@ namespace gpu_smart_ptr
             }
             else if constexpr (std::ranges::contiguous_range<T>)
             {
-                auto result = []([[maybe_unused]] base::size_type size) -> T {
-                    if constexpr (std::is_constructible_v<T, typename base::size_type>)
+                auto result = []([[maybe_unused]] size_type size) -> T {
+                    if constexpr (std::is_constructible_v<T, size_type>)
                     {
                         // std::vector like type
                         return T(size);
@@ -556,7 +559,7 @@ namespace gpu_smart_ptr
             }
         }
 
-        template <std::ranges::range T, typename U = std::ranges::range_value_t<T>>
+        template <std::ranges::range T, typename U = std::ranges::range_value_t<T> >
         requires std::is_default_constructible_v<T> && requires(const ValueType& v) { static_cast<U>(v); } &&
                  (!std::same_as<ValueType, U>)
         __host__ T to() const
@@ -596,7 +599,7 @@ namespace gpu_smart_ptr
         template <template <typename...> typename T>
         __host__ auto to() const
         {
-            return to<T<ValueType>>();
+            return to<T<ValueType> >();
         }
 
         template <typename T>
@@ -606,7 +609,7 @@ namespace gpu_smart_ptr
             return to<T>();
         }
 
-        __device__ void reset(pointer ptr, base::size_type size)
+        __device__ void reset(pointer ptr, size_type size)
         {
             assert(size == 0 || ptr != nullptr);
 
@@ -627,20 +630,20 @@ namespace gpu_smart_ptr
         __host__ void reset() { base::free(); }
     };
 
-    template <typename ValueType>
-    class unified_array_ptr : public detail::base<true, ValueType>
+    template <typename ValueType, typename SizeType>
+    class unified_array_ptr : public detail::base<true, SizeType, ValueType>
     {
-        using base = detail::base<true, ValueType>;
+        using base = detail::base<true, SizeType, ValueType>;
         static constexpr auto has_prefetch =
             requires(const ValueType& a, int device_id, detail::gpuStream_t s) { a.prefetch(device_id, s); };
         static constexpr auto has_mem_advise = requires(const ValueType& a, detail::gpuMemoryAdvise advise,
                                                         int device_id) { a.mem_advise(advise, device_id); };
 
     protected:
-        template <detail::array_convertible Range, typename U = std::ranges::range_value_t<Range>>
-        requires std::is_constructible_v<ValueType, std::ranges::range_value_t<U>>
+        template <detail::array_convertible Range, typename U = std::ranges::range_value_t<Range> >
+        requires std::is_constructible_v<ValueType, std::ranges::range_value_t<U> >
         __host__ explicit unified_array_ptr(const Range& nested_array, detail::join_init_tag)
-            : base(detail::cast_size_type(
+            : base(detail::cast_size_type<SizeType>(
                   std::accumulate(std::ranges::begin(nested_array), std::ranges::end(nested_array), std::size_t{0},
                                   [](auto acc, const auto& r) { return acc + std::ranges::size(r); })))
         {
@@ -656,6 +659,7 @@ namespace gpu_smart_ptr
         }
 
     public:
+        using size_type = SizeType;
         using value_type = ValueType;
         using reference = value_type&;
         using const_reference = const value_type&;
@@ -664,8 +668,8 @@ namespace gpu_smart_ptr
         using pointer = value_type*;
         using const_pointer = const value_type*;
 
-        __host__ __device__ const_reference operator[](base::size_type i) const noexcept { return data()[i]; };
-        __host__ __device__ reference operator[](base::size_type i) noexcept { return data()[i]; }
+        __host__ __device__ const_reference operator[](size_type i) const noexcept { return data()[i]; };
+        __host__ __device__ reference operator[](size_type i) noexcept { return data()[i]; }
         __host__ __device__ iterator begin() noexcept { return data(); }
         __host__ __device__ iterator end() noexcept { return data() + base::size_; }
         __host__ __device__ iterator rbegin() noexcept { return std::reverse_iterator<iterator>(end()); }
@@ -701,7 +705,7 @@ namespace gpu_smart_ptr
         __host__ __device__ unified_array_ptr(const unified_array_ptr& r) : base(r) {}
         __host__ __device__ unified_array_ptr(unified_array_ptr&& r) noexcept : base(std::move(r)) {}
 
-        __host__ explicit unified_array_ptr(base::size_type size) : base(size)
+        __host__ explicit unified_array_ptr(size_type size) : base(size)
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -710,7 +714,7 @@ namespace gpu_smart_ptr
             std::ranges::uninitialized_value_construct(*this);
         }
 
-        __host__ explicit unified_array_ptr(base::size_type size, default_init_tag) : base(size)
+        __host__ explicit unified_array_ptr(size_type size, default_init_tag) : base(size)
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -719,7 +723,7 @@ namespace gpu_smart_ptr
             std::ranges::uninitialized_default_construct(*this);
         }
 
-        __host__ unified_array_ptr(base::size_type size, const ValueType& value) : base(size)
+        __host__ unified_array_ptr(size_type size, const ValueType& value) : base(size)
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -728,9 +732,9 @@ namespace gpu_smart_ptr
             std::ranges::uninitialized_fill(*this, value);
         }
 
-        template <detail::array_convertible T, typename U = std::ranges::range_value_t<T>>
+        template <detail::array_convertible T, typename U = std::ranges::range_value_t<T> >
         requires std::is_constructible_v<ValueType, U>
-        __host__ explicit unified_array_ptr(const T& r) : base(detail::cast_size_type(std::ranges::size(r)))
+        __host__ explicit unified_array_ptr(const T& r) : base(detail::cast_size_type<size_type>(std::ranges::size(r)))
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -744,7 +748,7 @@ namespace gpu_smart_ptr
         }
 
         __host__ unified_array_ptr(std::initializer_list<ValueType> r)
-            : base(detail::cast_size_type(std::ranges::size(r)))
+            : base(detail::cast_size_type<size_type>(std::ranges::size(r)))
         {
             if (base::size_ == 0) return;
             CHECK_GPU_ERROR(detail::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
@@ -798,7 +802,7 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        __host__ void prefetch(base::size_type n, base::size_type len, int device_id, detail::gpuStream_t stream = 0,
+        __host__ void prefetch(size_type n, size_type len, int device_id, detail::gpuStream_t stream = 0,
                                bool recursive = true) const
         {
             assert(n + len <= base::size_);
@@ -810,8 +814,7 @@ namespace gpu_smart_ptr
                     for (auto i = n; i < n + len; ++i) data()[i].prefetch(device_id, stream, recursive);
             }
         }
-        __host__ void prefetch(base::size_type n, base::size_type len, detail::gpuStream_t stream = 0,
-                               bool recursive = true) const
+        __host__ void prefetch(size_type n, size_type len, detail::gpuStream_t stream = 0, bool recursive = true) const
         {
             prefetch(n, len, detail::get_device_id(), stream, recursive);
         }
@@ -830,7 +833,7 @@ namespace gpu_smart_ptr
             prefetch(detail::get_device_id(), stream, recursive);
         }
 
-        __host__ void prefetch_cpu(base::size_type n, base::size_type len, detail::gpuStream_t stream = 0,
+        __host__ void prefetch_cpu(size_type n, size_type len, detail::gpuStream_t stream = 0,
                                    bool recursive = true) const
         {
             prefetch(n, len, gpuCpuDeviceId, stream, recursive);
@@ -840,7 +843,7 @@ namespace gpu_smart_ptr
             prefetch(gpuCpuDeviceId, stream, recursive);
         }
 
-        __host__ void mem_advise(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise, int device_id,
+        __host__ void mem_advise(size_type n, size_type len, detail::gpuMemoryAdvise advise, int device_id,
                                  bool recursive = true) const
         {
             assert(n + len <= base::size_);
@@ -852,7 +855,7 @@ namespace gpu_smart_ptr
                     for (auto i = n; i < n + len; ++i) data()[i].mem_advise(advise, device_id, recursive);
             }
         }
-        __host__ void mem_advise(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise,
+        __host__ void mem_advise(size_type n, size_type len, detail::gpuMemoryAdvise advise,
                                  bool recursive = true) const
         {
             mem_advise(n, len, advise, detail::get_device_id(), recursive);
@@ -872,7 +875,7 @@ namespace gpu_smart_ptr
             mem_advise(advise, detail::get_device_id(), recursive);
         }
 
-        __host__ void mem_advise_cpu(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise,
+        __host__ void mem_advise_cpu(size_type n, size_type len, detail::gpuMemoryAdvise advise,
                                      bool recursive = true) const
         {
             mem_advise(n, len, advise, gpuCpuDeviceId, recursive);
@@ -882,7 +885,7 @@ namespace gpu_smart_ptr
             mem_advise(advise, gpuCpuDeviceId, recursive);
         }
 
-        template <std::ranges::range T, typename U = std::ranges::range_value_t<T>>
+        template <std::ranges::range T, typename U = std::ranges::range_value_t<T> >
         requires std::is_default_constructible_v<T> && requires(const ValueType& v) { static_cast<U>(v); }
         __host__ T to() const
         {
@@ -918,7 +921,7 @@ namespace gpu_smart_ptr
         template <template <typename...> typename U>
         __host__ auto to() const
         {
-            return to<detail::to_range_deduced_t<unified_array_ptr, U>>();
+            return to<detail::to_range_deduced_t<unified_array_ptr, U> >();
         }
 
         template <typename T>
@@ -927,7 +930,7 @@ namespace gpu_smart_ptr
         {
             return to<T>();
         }
-        __device__ void reset(pointer ptr, base::size_type size)
+        __device__ void reset(pointer ptr, size_type size)
         requires std::is_trivially_copyable_v<ValueType>
         {
             assert(size == 0 || ptr != nullptr);
@@ -951,14 +954,14 @@ namespace gpu_smart_ptr
 
     // deduction guide for arrays
     template <detail::array_convertible T>
-    __host__ array_ptr(const T& r) -> array_ptr<std::ranges::range_value_t<T>>;
+    __host__ array_ptr(const T& r) -> array_ptr<std::ranges::range_value_t<T> >;
     template <detail::array_convertible T>
     __host__ unified_array_ptr(const T& r)
-        -> unified_array_ptr<detail::unified_array_deduced_t<std::ranges::range_value_t<T>>>;
+        -> unified_array_ptr<detail::unified_array_deduced_t<std::ranges::range_value_t<T> > >;
 
     template <typename ValueType>
     requires std::is_trivially_copyable_v<ValueType>
-    class value : protected detail::base<false, ValueType>
+    class value : protected detail::base<false, size_type_default, ValueType>
     {
         using base = detail::base<false, ValueType>;
         using value_type = ValueType;
@@ -1068,9 +1071,9 @@ namespace gpu_smart_ptr
     };
 
     template <typename ValueType>
-    class unified_value : protected detail::base<true, ValueType>
+    class unified_value : protected detail::base<true, size_type_default, ValueType>
     {
-        using base = detail::base<true, ValueType>;
+        using base = detail::base<true, size_type_default, ValueType>;
         using value_type = ValueType;
         using reference = value_type&;
         using const_reference = const value_type&;
@@ -1334,25 +1337,39 @@ namespace gpu_smart_ptr
     };
 
     template <typename... Ts>
-    class soa_ptr : public soa_ptr<std::tuple<Ts...>>
+    class soa_ptr : public soa_ptr<std::tuple<Ts...>, size_type_default>
     {
-        using base = soa_ptr<std::tuple<Ts...>>;
+        using base = soa_ptr<std::tuple<Ts...>, size_type_default>;
         using base::base;
 
     public:
+        using size_type = size_type_default;
         template <std::size_t N>
         using element_type = base::template element_type<N>;
         using base::operator=;
     };
 
     template <template <typename...> typename Tuple, typename... Ts>
+    class soa_ptr<Tuple<Ts...> > : public soa_ptr<Tuple<Ts...>, size_type_default>
+    {
+        using base = soa_ptr<Tuple<Ts...>, size_type_default>;
+        using base::base;
+
+    public:
+        using size_type = size_type_default;
+        template <std::size_t N>
+        using element_type = base::template element_type<N>;
+        using base::operator=;
+    };
+
+    template <template <typename...> typename Tuple, typename... Ts, typename SizeType>
     requires (sizeof...(Ts) > 0) && std::constructible_from<Tuple<Ts...>, const Ts&...> &&
              std::constructible_from<Tuple<Ts&...>, Ts&...> &&
              std::constructible_from<Tuple<const Ts&...>, const Ts&...> && (std::is_trivially_copyable_v<Ts> && ...)
-    class soa_ptr<Tuple<Ts...>> : public detail::base<false, Ts...>
+    class soa_ptr<Tuple<Ts...>, SizeType> : public detail::base<false, SizeType, Ts...>
     {
         static constexpr auto num_arrays = sizeof...(Ts);
-        using base = detail::base<false, Ts...>;
+        using base = detail::base<false, SizeType, Ts...>;
 
         using tuple_value_type = std::tuple<Ts...>;
         using tuple_pointer_type = std::tuple<Ts*...>;
@@ -1364,6 +1381,7 @@ namespace gpu_smart_ptr
         using const_iterator_type = soa_iterator<Tuple, const Ts...>;
 
     public:
+        using size_type = SizeType;
         template <std::size_t N>
         using element_type = std::tuple_element_t<N, tuple_value_type>;
 
@@ -1387,18 +1405,18 @@ namespace gpu_smart_ptr
                 },
                 base::data_);
         }
-        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](base::size_type i) &
+        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) &
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
         }
-        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](base::size_type i) const&
+        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) const&
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
                               base::data_);
         }
-        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](base::size_type i) &&
+        SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) &&
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_value_type{*(ptrs + i)...}; }, base::data_);
@@ -1418,7 +1436,7 @@ namespace gpu_smart_ptr
         __host__ __device__ soa_ptr(const soa_ptr& r) : base(r) {}
         __host__ __device__ soa_ptr(soa_ptr&& r) noexcept : base(std::move(r)) {}
 
-        __host__ explicit soa_ptr(base::size_type size) : base(size)
+        __host__ explicit soa_ptr(size_type size) : base(size)
         {
             if (base::size_ == 0) return;
 
@@ -1430,7 +1448,7 @@ namespace gpu_smart_ptr
             });
         }
 
-        __host__ explicit soa_ptr(base::size_type size, default_init_tag) : base(size)
+        __host__ explicit soa_ptr(size_type size, default_init_tag) : base(size)
         {
             if (base::size_ == 0) return;
 
@@ -1445,9 +1463,10 @@ namespace gpu_smart_ptr
             });
         }
 
-        template <std::ranges::forward_range Range, typename Element = std::ranges::range_value_t<Range>>
+        template <std::ranges::forward_range Range, typename Element = std::ranges::range_value_t<Range> >
         requires std::ranges::sized_range<Range> && detail::assignable_to_tuple<Element, Ts...>
-        __host__ explicit soa_ptr(const Range& array) : base(detail::cast_size_type(std::ranges::size(array)))
+        __host__ explicit soa_ptr(const Range& array)
+            : base(detail::cast_size_type<size_type>(std::ranges::size(array)))
         {
             if (base::size_ == 0) return;
 
@@ -1470,7 +1489,7 @@ namespace gpu_smart_ptr
         requires (sizeof...(Ranges) == num_arrays) && (std::ranges::sized_range<Ranges> && ...) &&
                  detail::assignable_to_tuple<std::tuple<std::ranges::range_value_t<Ranges>...>, Ts...>
         __host__ explicit soa_ptr(const Ranges&... arrays)
-            : base(detail::cast_size_type(std::max({std::ranges::size(arrays)...})))
+            : base(detail::cast_size_type<size_type>(std::max({std::ranges::size(arrays)...})))
         {
             if (base::size_ == 0) return;
 
@@ -1505,7 +1524,7 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        template <std::ranges::range Range, typename U = std::ranges::range_value_t<Range>>
+        template <std::ranges::range Range, typename U = std::ranges::range_value_t<Range> >
         requires std::is_default_constructible_v<Range> && std::is_constructible_v<U, Ts...>
         __host__ Range to() const
         {
@@ -1531,7 +1550,7 @@ namespace gpu_smart_ptr
                     result.reserve(base::size_);
                 }
 
-                for (typename base::size_type i = 0; i < base::size_; ++i)
+                for (size_type i = 0; i < base::size_; ++i)
                 {
                     std::apply([&result, i](const auto&... bufs) { result.push_back(U{bufs[i]...}); }, tmp_bufs);
                 }
@@ -1543,7 +1562,7 @@ namespace gpu_smart_ptr
                 // std::array like type
                 if (std::ranges::size(result) != base::size_) throw std::runtime_error("size mismatch");
 
-                for (typename base::size_type i = 0; i < base::size_; ++i)
+                for (size_type i = 0; i < base::size_; ++i)
                 {
                     std::apply([&result, i](const auto&... bufs) { result[i] = U{bufs[i]...}; }, tmp_bufs);
                 }
@@ -1555,7 +1574,7 @@ namespace gpu_smart_ptr
         template <template <typename...> typename T>
         __host__ auto to() const
         {
-            return to<T<Tuple<Ts...>>>();
+            return to<T<Tuple<Ts...> > >();
         }
 
         template <typename T>
@@ -1585,25 +1604,39 @@ namespace gpu_smart_ptr
     };
 
     template <typename... Ts>
-    class unified_soa_ptr : public unified_soa_ptr<std::tuple<Ts...>>
+    class unified_soa_ptr : public unified_soa_ptr<std::tuple<Ts...>, size_type_default>
     {
-        using base = unified_soa_ptr<std::tuple<Ts...>>;
+        using base = unified_soa_ptr<std::tuple<Ts...>, size_type_default>;
         using base::base;
 
     public:
+        using size_type = size_type_default;
         template <std::size_t N>
         using element_type = base::template element_type<N>;
         using base::operator=;
     };
 
     template <template <typename...> typename Tuple, typename... Ts>
+    class unified_soa_ptr<Tuple<Ts...> > : public unified_soa_ptr<Tuple<Ts...>, size_type_default>
+    {
+        using base = unified_soa_ptr<Tuple<Ts...>, size_type_default>;
+        using base::base;
+
+    public:
+        using size_type = size_type_default;
+        template <std::size_t N>
+        using element_type = base::template element_type<N>;
+        using base::operator=;
+    };
+
+    template <template <typename...> typename Tuple, typename... Ts, typename SizeType>
     requires (sizeof...(Ts) > 0) && std::constructible_from<Tuple<Ts...>, const Ts&...> &&
              std::constructible_from<Tuple<Ts&...>, Ts&...> &&
              std::constructible_from<Tuple<const Ts&...>, const Ts&...>
-    class unified_soa_ptr<Tuple<Ts...>> : public detail::base<true, Ts...>
+    class unified_soa_ptr<Tuple<Ts...>, SizeType> : public detail::base<true, SizeType, Ts...>
     {
         static constexpr auto num_arrays = sizeof...(Ts);
-        using base = detail::base<true, Ts...>;
+        using base = detail::base<true, SizeType, Ts...>;
 
         using tuple_value_type = std::tuple<Ts...>;
         using tuple_pointer_type = std::tuple<Ts*...>;
@@ -1622,10 +1655,10 @@ namespace gpu_smart_ptr
             requires(const T& a, detail::gpuMemoryAdvise advise, int device_id) { a.mem_advise(advise, device_id); };
 
     protected:
-        template <detail::array_convertible Range, typename U = std::ranges::range_value_t<Range>>
+        template <detail::array_convertible Range, typename U = std::ranges::range_value_t<Range> >
         requires (detail::assignable_to_tuple<std::ranges::range_value_t<U>, Ts...>)
         __host__ explicit unified_soa_ptr(const Range& nested_array, detail::join_init_tag)
-            : base(detail::cast_size_type(
+            : base(detail::cast_size_type<size_type>(
                   std::accumulate(std::ranges::begin(nested_array), std::ranges::end(nested_array), std::size_t{0},
                                   [](auto acc, const auto& r) { return acc + std::ranges::size(r); })))
         {
@@ -1648,6 +1681,7 @@ namespace gpu_smart_ptr
         }
 
     public:
+        using size_type = SizeType;
         template <std::size_t N>
         using element_type = std::tuple_element_t<N, tuple_value_type>;
 
@@ -1671,18 +1705,18 @@ namespace gpu_smart_ptr
                 },
                 base::data_);
         }
-        __host__ __device__ auto operator[](base::size_type i) &
+        __host__ __device__ auto operator[](size_type i) &
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
         }
-        __host__ __device__ auto operator[](base::size_type i) const&
+        __host__ __device__ auto operator[](size_type i) const&
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
                               base::data_);
         }
-        __host__ __device__ auto operator[](base::size_type i) &&
+        __host__ __device__ auto operator[](size_type i) &&
         {
             assert(i < base::size_);
             return std::apply([i](auto&... ptrs) { return ret_tuple_value_type{*(ptrs + i)...}; }, base::data_);
@@ -1702,7 +1736,7 @@ namespace gpu_smart_ptr
         __host__ __device__ unified_soa_ptr(const unified_soa_ptr& r) : base(r) {}
         __host__ __device__ unified_soa_ptr(unified_soa_ptr&& r) noexcept : base(std::move(r)) {}
 
-        __host__ explicit unified_soa_ptr(base::size_type size) : base(size)
+        __host__ explicit unified_soa_ptr(size_type size) : base(size)
         {
             if (base::size_ == 0) return;
 
@@ -1713,7 +1747,7 @@ namespace gpu_smart_ptr
             });
         }
 
-        __host__ explicit unified_soa_ptr(base::size_type size, default_init_tag) : base(size)
+        __host__ explicit unified_soa_ptr(size_type size, default_init_tag) : base(size)
         {
             if (base::size_ == 0) return;
 
@@ -1724,9 +1758,10 @@ namespace gpu_smart_ptr
             });
         }
 
-        template <detail::array_convertible Range, typename Element = std::ranges::range_value_t<Range>>
+        template <detail::array_convertible Range, typename Element = std::ranges::range_value_t<Range> >
         requires detail::assignable_to_tuple<Element, Ts...>
-        __host__ explicit unified_soa_ptr(const Range& array) : base(detail::cast_size_type(std::ranges::size(array)))
+        __host__ explicit unified_soa_ptr(const Range& array)
+            : base(detail::cast_size_type<size_type>(std::ranges::size(array)))
         {
             if (base::size_ == 0) return;
 
@@ -1750,7 +1785,7 @@ namespace gpu_smart_ptr
         requires (sizeof...(Ranges) == num_arrays) &&
                  detail::assignable_to_tuple<std::tuple<std::ranges::range_value_t<Ranges>...>, Ts...>
         __host__ explicit unified_soa_ptr(const Ranges&... arrays)
-            : base(detail::cast_size_type(std::max({std::ranges::size(arrays)...})))
+            : base(detail::cast_size_type<size_type>(std::max({std::ranges::size(arrays)...})))
         {
             if (base::size_ == 0) return;
 
@@ -1783,7 +1818,7 @@ namespace gpu_smart_ptr
             return *this;
         }
 
-        __host__ void prefetch(base::size_type n, base::size_type len, int device_id, detail::gpuStream_t stream = 0,
+        __host__ void prefetch(size_type n, size_type len, int device_id, detail::gpuStream_t stream = 0,
                                bool recursive = true) const
         {
             assert(n + len <= base::size_);
@@ -1797,8 +1832,7 @@ namespace gpu_smart_ptr
                 }
             });
         }
-        __host__ void prefetch(base::size_type n, base::size_type len, detail::gpuStream_t stream = 0,
-                               bool recursive = true) const
+        __host__ void prefetch(size_type n, size_type len, detail::gpuStream_t stream = 0, bool recursive = true) const
         {
             prefetch(n, len, detail::get_device_id(), stream, recursive);
         }
@@ -1818,7 +1852,7 @@ namespace gpu_smart_ptr
         {
             prefetch(detail::get_device_id(), stream, recursive);
         }
-        __host__ void prefetch_cpu(base::size_type n, base::size_type len, detail::gpuStream_t stream = 0,
+        __host__ void prefetch_cpu(size_type n, size_type len, detail::gpuStream_t stream = 0,
                                    bool recursive = true) const
         {
             prefetch(n, len, gpuCpuDeviceId, stream, recursive);
@@ -1828,7 +1862,7 @@ namespace gpu_smart_ptr
             prefetch(gpuCpuDeviceId, stream, recursive);
         }
 
-        __host__ void mem_advise(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise, int device_id,
+        __host__ void mem_advise(size_type n, size_type len, detail::gpuMemoryAdvise advise, int device_id,
                                  bool recursive = true) const
         {
             assert(n + len <= base::size_);
@@ -1842,7 +1876,7 @@ namespace gpu_smart_ptr
                 }
             });
         }
-        __host__ void mem_advise(base::size_type n, base::size_type len, detail::gpuMemoryAdvise advise,
+        __host__ void mem_advise(size_type n, size_type len, detail::gpuMemoryAdvise advise,
                                  bool recursive = true) const
         {
             mem_advise(n, len, advise, detail::get_device_id(), recursive);
@@ -1874,7 +1908,7 @@ namespace gpu_smart_ptr
             mem_advise(advise, gpuCpuDeviceId, recursive);
         }
 
-        template <std::ranges::range Range, typename U = std::ranges::range_value_t<Range>>
+        template <std::ranges::range Range, typename U = std::ranges::range_value_t<Range> >
         requires std::is_default_constructible_v<Range> && std::is_constructible_v<U, Ts...>
         __host__ Range to() const
         {
@@ -1888,7 +1922,7 @@ namespace gpu_smart_ptr
                     result.reserve(base::size_);
                 }
 
-                for (typename base::size_type i = 0; i < base::size_; ++i)
+                for (size_type i = 0; i < base::size_; ++i)
                 {
                     std::apply([&result, i](const auto&... bufs) { result.push_back(U{bufs[i]...}); }, base::data_);
                 }
@@ -1900,7 +1934,7 @@ namespace gpu_smart_ptr
                 // std::array like type
                 if (std::ranges::size(result) != base::size_) throw std::runtime_error("size mismatch");
 
-                for (typename base::size_type i = 0; i < base::size_; ++i)
+                for (size_type i = 0; i < base::size_; ++i)
                 {
                     std::apply([&result, i](const auto&... bufs) { result[i] = U{bufs[i]...}; }, base::data_);
                 }
@@ -1912,7 +1946,7 @@ namespace gpu_smart_ptr
         template <template <typename...> typename T>
         __host__ auto to() const
         {
-            return to<T<Tuple<Ts...>>>();
+            return to<T<Tuple<Ts...> > >();
         }
 
         template <typename T>
@@ -1944,11 +1978,11 @@ namespace gpu_smart_ptr
     template <detail::array_convertible... Range>
     soa_ptr(const Range&... array) -> soa_ptr<std::ranges::range_value_t<Range>...>;
     template <detail::array_convertible Range>
-    soa_ptr(const Range& array) -> soa_ptr<std::ranges::range_value_t<Range>>;
+    soa_ptr(const Range& array) -> soa_ptr<std::ranges::range_value_t<Range> >;
     template <detail::array_convertible... Range>
     unified_soa_ptr(const Range&... array) -> unified_soa_ptr<std::ranges::range_value_t<Range>...>;
     template <detail::array_convertible Range>
-    unified_soa_ptr(const Range& array) -> unified_soa_ptr<std::ranges::range_value_t<Range>>;
+    unified_soa_ptr(const Range& array) -> unified_soa_ptr<std::ranges::range_value_t<Range> >;
 
     template <gpu_unified_smart_ptr ArrayType>
     class jagged_array : public ArrayType
@@ -1970,9 +2004,9 @@ namespace gpu_smart_ptr
 
         template <std::ranges::forward_range Range>
         requires std::ranges::sized_range<Range> &&
-                     std::constructible_from<size_type, std::ranges::range_value_t<Range>>
+                     std::constructible_from<size_type, std::ranges::range_value_t<Range> >
         __host__ explicit jagged_array(const Range& sizes)
-            : base(detail::cast_size_type(
+            : base(detail::cast_size_type<size_type>(
                   std::accumulate(std::ranges::begin(sizes), std::ranges::end(sizes), std::size_t{0}))),
               offsets_(std::ranges::size(sizes) + 1U, default_init)
         {
@@ -1985,15 +2019,15 @@ namespace gpu_smart_ptr
         }
 
         template <detail::array_convertible Range, detail::array_convertible Inner = std::ranges::range_value_t<Range>,
-                  typename Element = std::ranges::range_value_t<Inner>>
+                  typename Element = std::ranges::range_value_t<Inner> >
         __host__ explicit jagged_array(const Range& nested_array)
             : base(nested_array, detail::join_init),
-              offsets_(detail::cast_size_type(std::ranges::size(nested_array) + 1U), default_init)
+              offsets_(detail::cast_size_type<size_type>(std::ranges::size(nested_array) + 1U), default_init)
         {
             offsets_[0] = 0;
             for (size_type i = 0; const auto& a : nested_array)
             {
-                offsets_[i + 1] = detail::cast_size_type(offsets_[i] + std::ranges::size(a));
+                offsets_[i + 1] = detail::cast_size_type<size_type>(offsets_[i] + std::ranges::size(a));
                 ++i;
             }
         }
