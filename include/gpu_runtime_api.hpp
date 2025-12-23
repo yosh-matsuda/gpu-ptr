@@ -144,11 +144,25 @@ namespace gpu_smart_ptr::detail
     __host__ inline decltype(auto) gpuMemPrefetchAsync(const void* devPtr, size_t count, int dstDevice,
                                                        gpuStream_t stream = 0)
     {
+#if !defined(__CUDACC_VER_MAJOR__) || __CUDACC_VER_MAJOR__ < 13
         return ::cudaMemPrefetchAsync(devPtr, count, dstDevice, stream);
+#else
+        return ::cudaMemPrefetchAsync(
+            devPtr, count,
+            {.type = dstDevice == cudaCpuDeviceId ? cudaMemLocationTypeHost : cudaMemLocationTypeDevice,
+             .id = dstDevice},
+            0, stream);
+#endif
     }
     __host__ inline decltype(auto) gpuMemAdvise(const void* devPtr, size_t count, gpuMemoryAdvise advice, int device)
     {
+#if !defined(__CUDACC_VER_MAJOR__) || __CUDACC_VER_MAJOR__ < 13
         return ::cudaMemAdvise(devPtr, count, static_cast<cudaMemoryAdvise>(advice), device);
+#else
+        return ::cudaMemAdvise(
+            devPtr, count, static_cast<cudaMemoryAdvise>(advice),
+            {.type = device == cudaCpuDeviceId ? cudaMemLocationTypeHost : cudaMemLocationTypeDevice, .id = device});
+#endif
     }
     __host__ inline decltype(auto) gpuDeviceSynchronize() { return ::cudaDeviceSynchronize(); }
     __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::cudaGetDeviceCount(count); }
