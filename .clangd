@@ -1,0 +1,20 @@
+If:
+  PathMatch: .*\.(c|h)pp
+CompileFlags:
+  Compiler: /usr/local/cuda/bin/nvcc
+
+---
+CompileFlags:
+  Compiler: clang++
+  Add:
+    - -D_CLANGD=1
+    - --no-cuda-version-check
+    - -D__CUDACC_VER_MAJOR__=13
+  Remove:
+    - -forward-unknown-to-host-compiler
+    - --expt-relaxed-constexpr
+    - --generate-code=*
+    - -rdc=*
+    - -Xptxas=-v
+    - -ccbin=*
+    - -arch=*

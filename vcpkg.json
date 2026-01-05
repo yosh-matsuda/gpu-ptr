@@ -1,0 +1,10 @@
+{
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+    "name": "gpu-ptr",
+    "version": "0.1.0",
+    "dependencies": [
+        "gtest",
+        "nameof"
+    ],
+    "builtin-baseline": "ff645ac59d2b06586b8ef4187cf66328da60c0fd"
+}

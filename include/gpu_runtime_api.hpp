@@ -1,0 +1,254 @@
+/*===================================================*
+|  GPU pointer wrapper (gpu-ptr) version v0.0.1      |
+|  https://github.com/yosh-matsuda/gpu-ptr           |
+|                                                    |
+|  Copyright (c) 2026 Yoshiki Matsuda @yosh-matsuda  |
+|                                                    |
+|  This software is released under the MIT License.  |
+|  https://opensource.org/license/mit/               |
+====================================================*/
+
+#pragma once
+
+#if defined(__HIP_DEVICE_COMPILE__) || (defined(__CUDA_ARCH__) && __CUDA_ARCH__ != 0)
+#define GPU_DEVICE_COMPILE
+#endif
+
+#if !defined(__NVCC__) || defined(__CUDA_ARCH__) || defined(_CLANGD)
+#define GPU_OVERLOAD_DEVICE
+#endif
+#if !(defined(__NVCC__) && defined(__CUDA_ARCH__)) || defined(_CLANGD)
+#define GPU_OVERLOAD_HOST
+#endif
+
+#ifdef ENABLE_HIP
+#include <hip/hip_cooperative_groups.h>
+#include <hip/hip_runtime.h>
+#else
+#include <cooperative_groups.h>
+#include <cuda_runtime.h>
+#endif
+
+#include <sstream>
+
+// NOLINTBEGIN
+namespace gpu_ptr::api
+{
+#ifdef ENABLE_HIP
+
+    using gpuError_t = ::hipError_t;
+#define gpuSuccess hipSuccess
+    __host__ inline const char* gpuGetErrorName(gpuError_t gpu_error) { return ::hipGetErrorName(gpu_error); }
+    __host__ inline const char* gpuGetErrorString(gpuError_t gpu_error) { return ::hipGetErrorString(gpu_error); }
+
+    using gpuMemcpyKind = ::hipMemcpyKind;
+    enum class gpuMemoryAdvise
+    {
+        SetReadMostly = hipMemAdviseSetReadMostly,
+        UnsetReadMostly = hipMemAdviseUnsetReadMostly,
+        SetPreferredLocation = hipMemAdviseSetPreferredLocation,
+        UnsetPreferredLocation = hipMemAdviseUnsetPreferredLocation,
+        SetAccessedBy = hipMemAdviseSetAccessedBy,
+        UnsetAccessedBy = hipMemAdviseUnsetAccessedBy,
+    };
+#define gpuMemcpyHostToHost hipMemcpyHostToHost
+#define gpuMemcpyHostToDevice hipMemcpyHostToDevice
+#define gpuMemcpyDeviceToHost hipMemcpyDeviceToHost
+#define gpuMemcpyDeviceToDevice hipMemcpyDeviceToDevice
+#define gpuMemcpyDefault hipMemcpyDefault
+
+#define gpuMemAttachGlobal hipMemAttachGlobal
+#define gpuMemAttachHost hipMemAttachHost
+#define gpuMemAttachSingle hipMemAttachSingle
+
+#define gpuCpuDeviceId hipCpuDeviceId
+#define gpuInvalidDeviceId hipInvalidDeviceId
+
+    using gpuStream_t = hipStream_t;
+    using gpuPointerAttributes = hipPointerAttribute_t;
+    enum class gpuMemoryType
+    {
+        Host = hipMemoryTypeHost,
+        Device = hipMemoryTypeDevice,
+        Managed = hipMemoryTypeManaged,
+    };
+
+    __host__ inline decltype(auto) gpuMalloc(void** ptr, std::size_t size) { return ::hipMalloc(ptr, size); }
+    __host__ inline decltype(auto) gpuMallocManaged(void** ptr, std::size_t size,
+                                                    unsigned int flags = hipMemAttachGlobal)
+    {
+        return ::hipMallocManaged(ptr, size, flags);
+    }
+    __host__ inline decltype(auto) gpuFree(void* ptr) { return ::hipFree(ptr); }
+    __host__ inline decltype(auto) gpuMemcpy(void* dst, const void* src, std::size_t size, gpuMemcpyKind kind)
+    {
+        return ::hipMemcpy(dst, src, size, kind);
+    }
+    __host__ inline decltype(auto) gpuMemPrefetchAsync(const void* dev_ptr, std::size_t count, int device,
+                                                       gpuStream_t stream = 0)
+    {
+        return ::hipMemPrefetchAsync(dev_ptr, count, device, stream);
+    }
+    __host__ inline decltype(auto) gpuMemAdvise(const void* devPtr, size_t count, gpuMemoryAdvise advice, int device)
+    {
+        return ::hipMemAdvise(devPtr, count, static_cast<hipMemoryAdvise>(advice), device);
+    }
+    __host__ inline decltype(auto) gpuDeviceSynchronize() { return ::hipDeviceSynchronize(); }
+    __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::hipGetDeviceCount(count); }
+    __host__ inline decltype(auto) gpuGetDevice(int* device) { return ::hipGetDevice(device); }
+    __host__ inline decltype(auto) gpuStreamCreate(gpuStream_t* stream) { return ::hipStreamCreate(stream); }
+    __host__ inline decltype(auto) gpuStreamDestroy(gpuStream_t stream) { return ::hipStreamDestroy(stream); }
+    __host__ inline decltype(auto) gpuStreamSynchronize(gpuStream_t stream) { return ::hipStreamSynchronize(stream); }
+    template <typename T>
+    __host__ decltype(auto) gpuOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks, T f, int blockSize,
+                                                                         size_t dynSharedMemPerBlk)
+    {
+        return ::hipOccupancyMaxActiveBlocksPerMultiprocessor(numBlocks, f, blockSize, dynSharedMemPerBlk);
+    }
+#ifdef __NVCC__
+    template <typename T>
+    __host__ inline decltype(auto) gpuOccupancyAvailableDynamicSMemPerBlock(size_t* dynamicSmem, T* f, int numBlocks,
+                                                                            int blockSize)
+    {
+        return hipCUDAErrorTohipError(
+            ::cudaOccupancyAvailableDynamicSMemPerBlock(dynamicSmem, f, numBlocks, blockSize));
+    }
+#endif
+    __host__ inline decltype(auto) gpuSetDevice(int device) { return ::hipSetDevice(device); }
+    __host__ inline decltype(auto) gpuGetLastError() { return ::hipGetLastError(); }
+    __host__ inline decltype(auto) gpuPointerGetAttributes(gpuPointerAttributes* attributes, const void* ptr)
+    {
+        return ::hipPointerGetAttributes(attributes, ptr);
+    }
+#else
+
+    using gpuError_t = ::cudaError_t;
+#define gpuSuccess cudaSuccess
+    __host__ inline const char* gpuGetErrorName(gpuError_t gpu_error) { return ::cudaGetErrorName(gpu_error); }
+    __host__ inline const char* gpuGetErrorString(gpuError_t gpu_error) { return ::cudaGetErrorString(gpu_error); }
+
+    using gpuMemcpyKind = ::cudaMemcpyKind;
+    enum class gpuMemoryAdvise
+    {
+        SetReadMostly = cudaMemAdviseSetReadMostly,
+        UnsetReadMostly = cudaMemAdviseUnsetReadMostly,
+        SetPreferredLocation = cudaMemAdviseSetPreferredLocation,
+        UnsetPreferredLocation = cudaMemAdviseUnsetPreferredLocation,
+        SetAccessedBy = cudaMemAdviseSetAccessedBy,
+        UnsetAccessedBy = cudaMemAdviseUnsetAccessedBy,
+    };
+#define gpuMemcpyHostToHost cudaMemcpyHostToHost
+#define gpuMemcpyHostToDevice cudaMemcpyHostToDevice
+#define gpuMemcpyDeviceToHost cudaMemcpyDeviceToHost
+#define gpuMemcpyDeviceToDevice cudaMemcpyDeviceToDevice
+#define gpuMemcpyDefault cudaMemcpyDefault
+
+#define gpuMemAttachGlobal cudaMemAttachGlobal
+#define gpuMemAttachHost cudaMemAttachHost
+#define gpuMemAttachSingle cudaMemAttachSingle
+
+#define gpuCpuDeviceId cudaCpuDeviceId
+#define gpuInvalidDeviceId cudaInvalidDeviceId
+
+    using gpuStream_t = cudaStream_t;
+    using gpuPointerAttributes = cudaPointerAttributes;
+    enum class gpuMemoryType
+    {
+        Host = cudaMemoryTypeHost,
+        Device = cudaMemoryTypeDevice,
+        Managed = cudaMemoryTypeManaged,
+    };
+
+    __host__ inline decltype(auto) gpuMalloc(void** devPtr, std::size_t size) { return ::cudaMalloc(devPtr, size); }
+    __host__ inline decltype(auto) gpuMallocManaged(void** devPtr, std::size_t size,
+                                                    unsigned int flags = cudaMemAttachGlobal)
+    {
+        return ::cudaMallocManaged(devPtr, size, flags);
+    }
+    __host__ inline decltype(auto) gpuFree(void* devPtr) { return ::cudaFree(devPtr); }
+    __host__ inline decltype(auto) gpuMemcpy(void* dst, const void* src, std::size_t size, gpuMemcpyKind kind)
+    {
+        return ::cudaMemcpy(dst, src, size, kind);
+    }
+    __host__ inline decltype(auto) gpuMemPrefetchAsync(const void* devPtr, size_t count, int dstDevice,
+                                                       gpuStream_t stream = 0)
+    {
+#if !defined(__CUDACC_VER_MAJOR__) || __CUDACC_VER_MAJOR__ < 13
+        return ::cudaMemPrefetchAsync(devPtr, count, dstDevice, stream);
+#else
+        return ::cudaMemPrefetchAsync(
+            devPtr, count,
+            {.type = dstDevice == cudaCpuDeviceId ? cudaMemLocationTypeHost : cudaMemLocationTypeDevice,
+             .id = dstDevice},
+            0, stream);
+#endif
+    }
+    __host__ inline decltype(auto) gpuMemAdvise(const void* devPtr, size_t count, gpuMemoryAdvise advice, int device)
+    {
+#if !defined(__CUDACC_VER_MAJOR__) || __CUDACC_VER_MAJOR__ < 13
+        return ::cudaMemAdvise(devPtr, count, static_cast<cudaMemoryAdvise>(advice), device);
+#else
+        return ::cudaMemAdvise(
+            devPtr, count, static_cast<cudaMemoryAdvise>(advice),
+            {.type = device == cudaCpuDeviceId ? cudaMemLocationTypeHost : cudaMemLocationTypeDevice, .id = device});
+#endif
+    }
+    __host__ inline decltype(auto) gpuDeviceSynchronize() { return ::cudaDeviceSynchronize(); }
+    __host__ inline decltype(auto) gpuGetDeviceCount(int* count) { return ::cudaGetDeviceCount(count); }
+    __host__ inline decltype(auto) gpuGetDevice(int* device) { return ::cudaGetDevice(device); }
+    __host__ inline decltype(auto) gpuStreamCreate(gpuStream_t* stream) { return ::cudaStreamCreate(stream); }
+    __host__ inline decltype(auto) gpuStreamDestroy(gpuStream_t stream) { return ::cudaStreamDestroy(stream); }
+    __host__ inline decltype(auto) gpuStreamSynchronize(gpuStream_t stream) { return ::cudaStreamSynchronize(stream); }
+    template <typename T>
+    __host__ decltype(auto) gpuOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks, T f, int blockSize,
+                                                                         size_t dynSharedMemPerBlk)
+    {
+        return ::cudaOccupancyMaxActiveBlocksPerMultiprocessor(numBlocks, f, blockSize, dynSharedMemPerBlk);
+    }
+    template <typename T>
+    __host__ inline decltype(auto) gpuOccupancyAvailableDynamicSMemPerBlock(size_t* dynamicSmem, T* f, int numBlocks,
+                                                                            int blockSize)
+    {
+        return ::cudaOccupancyAvailableDynamicSMemPerBlock(dynamicSmem, f, numBlocks, blockSize);
+    }
+    __host__ inline decltype(auto) gpuSetDevice(int device) { return ::cudaSetDevice(device); }
+    __host__ inline decltype(auto) gpuGetLastError() { return ::cudaGetLastError(); }
+    __host__ inline decltype(auto) gpuPointerGetAttributes(gpuPointerAttributes* attributes, const void* ptr)
+    {
+        return ::cudaPointerGetAttributes(attributes, ptr);
+    }
+#endif
+}  // namespace gpu_ptr::api
+
+namespace gpu_ptr::detail
+{
+    __host__ inline void check_gpu_error(const api::gpuError_t e)
+    {
+        using namespace gpu_ptr::api;
+        if (e != gpuSuccess)
+        {
+            std::stringstream s;
+            s << gpuGetErrorName(e) << " (" << static_cast<unsigned>(e) << "): " << gpuGetErrorString(e);
+            throw std::runtime_error{s.str()};
+        }
+    }
+    __host__ inline void check_gpu_error(const api::gpuError_t e, const char* f, decltype(__LINE__) n)
+    {
+        using namespace gpu_ptr::api;
+        if (e != gpuSuccess)
+        {
+            std::stringstream s;
+            s << gpuGetErrorName(e) << " (" << static_cast<unsigned>(e) << ")@" << f << "#L" << n << ": "
+              << gpuGetErrorString(e);
+            throw std::runtime_error{s.str()};
+        }
+    }
+}  // namespace gpu_ptr::detail
+
+#ifdef NDEBUG
+#define GPU_CHECK_ERROR(expr) (gpu_ptr::detail::check_gpu_error(expr))
+#else
+#define GPU_CHECK_ERROR(expr) (gpu_ptr::detail::check_gpu_error(expr, __FILE__, __LINE__))
+#endif
+
+// NOLINTEND
