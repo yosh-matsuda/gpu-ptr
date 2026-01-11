@@ -385,21 +385,21 @@ namespace gpu_ptr
         }
         SIGSEGV_DEPRECATED __host__ __device__ const_iterator begin() const noexcept { return data(); }
         SIGSEGV_DEPRECATED __host__ __device__ const_iterator end() const noexcept { return data() + base::size_; }
-        SIGSEGV_DEPRECATED __host__ __device__ const_iterator rbegin() const noexcept
+        SIGSEGV_DEPRECATED __host__ __device__ std::reverse_iterator<const_iterator> rbegin() const noexcept
         {
             return std::reverse_iterator<const_iterator>(end());
         }
-        SIGSEGV_DEPRECATED __host__ __device__ const_iterator rend() const noexcept
+        SIGSEGV_DEPRECATED __host__ __device__ std::reverse_iterator<const_iterator> rend() const noexcept
         {
             return std::reverse_iterator<const_iterator>(begin());
         }
         SIGSEGV_DEPRECATED __host__ __device__ const_iterator cbegin() const noexcept { return data(); }
         SIGSEGV_DEPRECATED __host__ __device__ const_iterator cend() const noexcept { return data() + base::size_; }
-        SIGSEGV_DEPRECATED __host__ __device__ const_iterator crbegin() const noexcept
+        SIGSEGV_DEPRECATED __host__ __device__ std::reverse_iterator<const_iterator> crbegin() const noexcept
         {
             return std::reverse_iterator<const_iterator>(cend());
         }
-        SIGSEGV_DEPRECATED __host__ __device__ const_iterator crend() const noexcept
+        SIGSEGV_DEPRECATED __host__ __device__ std::reverse_iterator<const_iterator> crend() const noexcept
         {
             return std::reverse_iterator<const_iterator>(cbegin());
         }
@@ -780,21 +780,21 @@ namespace gpu_ptr
         }
         __host__ __device__ const_iterator begin() const noexcept { return data(); }
         __host__ __device__ const_iterator end() const noexcept { return data() + base::size_; }
-        __host__ __device__ const_iterator rbegin() const noexcept
+        __host__ __device__ std::reverse_iterator<const_iterator> rbegin() const noexcept
         {
             return std::reverse_iterator<const_iterator>(end());
         }
-        __host__ __device__ const_iterator rend() const noexcept
+        __host__ __device__ std::reverse_iterator<const_iterator> rend() const noexcept
         {
             return std::reverse_iterator<const_iterator>(begin());
         }
         __host__ __device__ const_iterator cbegin() const noexcept { return data(); }
         __host__ __device__ const_iterator cend() const noexcept { return data() + base::size_; }
-        __host__ __device__ const_iterator crbegin() const noexcept
+        __host__ __device__ std::reverse_iterator<const_iterator> crbegin() const noexcept
         {
             return std::reverse_iterator<const_iterator>(cend());
         }
-        __host__ __device__ const_iterator crend() const noexcept
+        __host__ __device__ std::reverse_iterator<const_iterator> crend() const noexcept
         {
             return std::reverse_iterator<const_iterator>(cbegin());
         }
