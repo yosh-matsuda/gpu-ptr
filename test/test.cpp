@@ -1944,6 +1944,24 @@ TEST(JaggedArray, Construction)
             }
         }
     }
+
+    // wrap managed array with sizes initializer_list
+    {
+        auto arr = managed_array<double>(14, 99.0);
+        auto jagged_arr_wrap = jagged_array({3, 1, 4, 1, 5}, arr);
+
+        // use count: jagged_arr_wrap wraps managed_array arr without copy
+        EXPECT_EQ(arr.use_count(), 2);
+
+        // deduction guide
+        static_assert(std::same_as<decltype(jagged_arr_wrap), jagged_array<managed_array<double>>>);
+
+        EXPECT_EQ(jagged_arr_wrap.size(), arr.size());
+        for (std::size_t i = 0; i < jagged_arr_wrap.num_rows(); ++i)
+        {
+            for (const auto& v : jagged_arr_wrap.row(i)) EXPECT_EQ(v, 99.0);
+        }
+    }
 }
 
 TEST(JaggedArray, Export)

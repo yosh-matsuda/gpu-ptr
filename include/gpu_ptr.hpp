@@ -2353,7 +2353,24 @@ namespace gpu_ptr
 
         template <detail::array_convertible_for_copy Range1, detail::array_convertible_for_copy Range2>
         requires std::constructible_from<size_type, std::ranges::range_value_t<Range1>>
-        __host__ explicit jagged_array(const Range1& sizes, const Range2& array)
+        __host__ jagged_array(const Range1& sizes, const Range2& array)
+            : base(array), offsets_(std::ranges::size(sizes) + 1U, default_init)
+        {
+            if (std::accumulate(std::ranges::begin(sizes), std::ranges::end(sizes), std::size_t{0}) != base::size())
+            {
+                throw std::invalid_argument("the total size of sizes does not match the size of array");
+            }
+
+            offsets_[0] = 0;
+            for (size_type i = 0; const auto& s : sizes)
+            {
+                offsets_[i + 1] = offsets_[i] + static_cast<size_type>(s);
+                ++i;
+            }
+        }
+
+        template <detail::array_convertible_for_copy Range>
+        __host__ jagged_array(std::initializer_list<size_type> sizes, const Range& array)
             : base(array), offsets_(std::ranges::size(sizes) + 1U, default_init)
         {
             if (std::accumulate(std::ranges::begin(sizes), std::ranges::end(sizes), std::size_t{0}) != base::size())
