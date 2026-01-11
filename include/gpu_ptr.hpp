@@ -411,7 +411,7 @@ namespace gpu_ptr
             return *(data() + base::size_ - 1);
         }
         __host__ __device__ pointer data() noexcept { return std::get<0>(base::data_); }
-        __host__ __device__ pointer data() const noexcept { return std::get<0>(base::data_); }
+        __host__ __device__ const_pointer data() const noexcept { return std::get<0>(base::data_); }
 
         array() = default;
         __host__ __device__ array(const array& r) : base(r) {}
@@ -796,7 +796,7 @@ namespace gpu_ptr
         __host__ __device__ reference back() noexcept { return *(data() + base::size_ - 1); }
         __host__ __device__ const_reference back() const noexcept { return *(data() + base::size_ - 1); }
         __host__ __device__ pointer data() noexcept { return std::get<0>(base::data_); }
-        __host__ __device__ pointer data() const noexcept { return std::get<0>(base::data_); }
+        __host__ __device__ const_pointer data() const noexcept { return std::get<0>(base::data_); }
 
         managed_array() = default;
         __host__ __device__ managed_array(const managed_array& r) : base(r) {}
@@ -1094,7 +1094,6 @@ namespace gpu_ptr
         using base = detail::base<false, std::uint32_t, ValueType>;
         using value_type = ValueType;
         using reference = value_type&;
-        using const_reference = const value_type&;
         using pointer = value_type*;
         using const_pointer = const value_type*;
 
@@ -1165,27 +1164,16 @@ namespace gpu_ptr
             return *this;
         }
 
-        __host__ __device__ pointer get() noexcept { return std::get<0>(base::data_); }
-        __host__ __device__ const_pointer get() const noexcept { return std::get<0>(base::data_); }
+        __host__ __device__ pointer get() const noexcept { return std::get<0>(base::data_); }
         __host__ __device__ explicit operator bool() const noexcept { return std::get<0>(base::data_) != nullptr; }
 
 #if defined(GPU_OVERLOAD_DEVICE)
-        __device__ const_reference operator*() const noexcept
+        __device__ reference operator*() const noexcept
         {
             assert(get() != nullptr);
             return *get();
         }
-        __device__ reference operator*() noexcept
-        {
-            assert(get() != nullptr);
-            return *get();
-        }
-        __device__ const_pointer operator->() const noexcept
-        {
-            assert(get() != nullptr);
-            return get();
-        }
-        __device__ pointer operator->() noexcept
+        __device__ pointer operator->() const noexcept
         {
             assert(get() != nullptr);
             return get();
@@ -1228,9 +1216,7 @@ namespace gpu_ptr
         using base = detail::base<true, std::uint32_t, ValueType>;
         using value_type = ValueType;
         using reference = value_type&;
-        using const_reference = const value_type&;
         using pointer = value_type*;
-        using const_pointer = const value_type*;
 
         static constexpr auto has_prefetch =
             requires(const ValueType& a, int device_id, api::gpuStream_t s) { a.prefetch(device_id, s); };
@@ -1310,29 +1296,18 @@ namespace gpu_ptr
             return *this;
         }
 
-        __host__ __device__ const_reference operator*() const noexcept
+        __host__ __device__ reference operator*() const noexcept
         {
             assert(get() != nullptr);
             return *get();
         }
-        __host__ __device__ reference operator*() noexcept
-        {
-            assert(get() != nullptr);
-            return *get();
-        }
-        __host__ __device__ const_pointer operator->() const noexcept
-        {
-            assert(get() != nullptr);
-            return get();
-        }
-        __host__ __device__ pointer operator->() noexcept
+        __host__ __device__ pointer operator->() const noexcept
         {
             assert(get() != nullptr);
             return get();
         }
 
-        __host__ __device__ pointer get() noexcept { return std::get<0>(base::data_); }
-        __host__ __device__ const_pointer get() const noexcept { return std::get<0>(base::data_); }
+        __host__ __device__ pointer get() const noexcept { return std::get<0>(base::data_); }
         __host__ __device__ explicit operator bool() const noexcept { return std::get<0>(base::data_) != nullptr; }
 
         __host__ void prefetch(int device_id, api::gpuStream_t stream = 0, bool recursive = true) const
@@ -1832,7 +1807,7 @@ namespace gpu_ptr
         template <std::size_t N>
         __device__ void reset(std::tuple_element_t<N, tuple_pointer_type> ptr)
         {
-            assert(base::size_ == 0 || ptr != nullptr);
+            if (base::size_ > 0) assert(ptr != nullptr);
 
             // reset specified pointer only
             std::get<N>(base::data_) = base::size_ == 0 ? nullptr : ptr;
@@ -1842,7 +1817,7 @@ namespace gpu_ptr
         __device__ void reset(const T& array)
         {
             assert(array.size() == base::size_);
-            reset<N>(array.data());
+            reset<N>(const_cast<std::tuple_element_t<N, tuple_pointer_type>>(array.data()));
         }
 
         __host__ void reset() { base::free(); }
@@ -2253,7 +2228,7 @@ namespace gpu_ptr
         template <std::size_t N>
         __device__ void reset(std::tuple_element_t<N, tuple_pointer_type> ptr)
         {
-            assert(base::size_ == 0 || ptr != nullptr);
+            if (base::size_ > 0) assert(ptr != nullptr);
 
             // reset specified pointer only
             std::get<N>(base::data_) = base::size_ == 0 ? nullptr : ptr;
@@ -2263,7 +2238,7 @@ namespace gpu_ptr
         __device__ void reset(const T& array)
         {
             assert(array.size() == base::size_);
-            reset<N>(array.data());
+            reset<N>(const_cast<std::tuple_element_t<N, tuple_pointer_type>>(array.data()));
         }
 
         __host__ void reset() { base::free(); }
