@@ -697,33 +697,26 @@ namespace gpu_ptr
         }
 #endif
 #if defined(GPU_OVERLOAD_DEVICE)
-        __device__ array(pointer ptr, size_type size) : base(ptr, size) {}
+        __device__ array(pointer ptr, size_type size) : base(ptr, size)
+        {
+            if (size > 0) assert(ptr != nullptr);
+        }
 #endif
 
 #if defined(GPU_OVERLOAD_HOST)
         __host__ void reset(pointer ptr, std::size_t size) { *this = array(ptr, size); }
 #endif
 #if defined(GPU_OVERLOAD_DEVICE)
-        __device__ void reset(pointer ptr, size_type size)
-        {
-            assert(size == 0 || ptr != nullptr);
-
-            // no need to be freed on GPU
-            base::init();
-
-            // ref_count_ does not need to be set because it is not used on GPU
-            std::get<0>(base::data_) = size == 0 ? nullptr : ptr;
-            base::size_ = size;
-        }
+        __device__ void reset(pointer ptr, size_type size) { *this = array(ptr, size); }
 #endif
-
-        template <gpu_array_ptr T>
-        __device__ void reset(const T& arr)
+        __host__ __device__ void reset() noexcept
         {
-            reset(arr.data(), arr.size());
+#ifdef GPU_DEVICE_COMPILE
+            reset(nullptr, 0);
+#else
+            base::free();
+#endif
         }
-
-        __host__ void reset() noexcept { base::free(); }
 
         __host__ __device__ explicit operator bool() const noexcept { return data() != nullptr; }
     };
@@ -1064,31 +1057,26 @@ namespace gpu_ptr
         }
 #endif
 #if defined(GPU_OVERLOAD_DEVICE)
-        __device__ managed_array(pointer ptr, size_type size) : base(ptr, size) {}
+        __device__ managed_array(pointer ptr, size_type size) : base(ptr, size)
+        {
+            if (size > 0) assert(ptr != nullptr);
+        }
 #endif
 
 #if defined(GPU_OVERLOAD_HOST)
         __host__ void reset(pointer ptr, std::size_t size) { *this = managed_array(ptr, size); }
 #endif
 #if defined(GPU_OVERLOAD_DEVICE)
-        __device__ void reset(pointer ptr, size_type size)
-        {
-            assert(size == 0 || ptr != nullptr);
-
-            // no need to be freed on GPU
-            base::init();
-
-            // ref_count_ does not need to be set because it is not used on GPU
-            std::get<0>(base::data_) = size == 0 ? nullptr : ptr;
-            base::size_ = size;
-        }
+        __device__ void reset(pointer ptr, size_type size) { *this = managed_array(ptr, size); }
 #endif
-        template <gpu_array_ptr T>
-        __device__ void reset(const T& arr)
+        __host__ __device__ void reset() noexcept
         {
-            reset(arr.data(), arr.size());
+#ifdef GPU_DEVICE_COMPILE
+            reset(nullptr, 0);
+#else
+            base::free();
+#endif
         }
-        __host__ void reset() noexcept { base::free(); }
 
         __host__ __device__ explicit operator bool() const noexcept { return data() != nullptr; }
     };
@@ -1149,8 +1137,9 @@ namespace gpu_ptr
 
         __host__ __device__ explicit value(pointer ptr)
 #if !defined(GPU_DEVICE_COMPILE)
-            : base(1)
+            : base(ptr == nullptr ? 0 : 1)
         {
+            if (ptr == nullptr) return;
             auto attr = api::gpuPointerAttributes{};
             GPU_CHECK_ERROR(api::gpuPointerGetAttributes(&attr, ptr));
             if (static_cast<api::gpuMemoryType>(attr.type) != api::gpuMemoryType::Device)
@@ -1160,7 +1149,7 @@ namespace gpu_ptr
             std::get<0>(base::data_) = ptr;
         }
 #else
-            : base(ptr, 1)
+            : base(ptr, ptr == nullptr ? 0 : 1)
         {
         }
 #endif
@@ -1222,23 +1211,15 @@ namespace gpu_ptr
             return proxy;
         }
 #endif
-#if defined(GPU_OVERLOAD_HOST)
-        __host__ void reset(pointer ptr) { *this = value(ptr); }
-#endif
-#if defined(GPU_OVERLOAD_DEVICE)
-        __device__ void reset(pointer ptr)
+        __host__ __device__ void reset(pointer ptr) { *this = value(ptr); }
+        __host__ __device__ void reset() noexcept
         {
-            // no need to be freed on GPU
-            base::init();
-
-            // ref_count_ does not need to be set because it is not used on GPU
-            std::get<0>(base::data_) = ptr;
-            if (ptr != nullptr) base::size_ = 1;
-        }
+#ifdef GPU_DEVICE_COMPILE
+            reset(nullptr);
+#else
+            base::free();
 #endif
-        __device__ void reset(const value& r) { reset(r.data()); }
-
-        __host__ void reset() { base::free(); }
+        }
     };
 
     template <typename ValueType>
@@ -1301,8 +1282,9 @@ namespace gpu_ptr
 
         __host__ __device__ explicit managed_value(pointer ptr)
 #if !defined(GPU_DEVICE_COMPILE)
-            : base(1)
+            : base(ptr == nullptr ? 0 : 1)
         {
+            if (ptr == nullptr) return;
             auto attr = api::gpuPointerAttributes{};
             GPU_CHECK_ERROR(api::gpuPointerGetAttributes(&attr, ptr));
             if (static_cast<api::gpuMemoryType>(attr.type) != api::gpuMemoryType::Managed)
@@ -1312,7 +1294,7 @@ namespace gpu_ptr
             std::get<0>(base::data_) = ptr;
         }
 #else
-            : base(ptr, 1)
+            : base(ptr, ptr == nullptr ? 0 : 1)
         {
         }
 #endif
@@ -1386,23 +1368,15 @@ namespace gpu_ptr
         {
             mem_advise(advise, gpuCpuDeviceId, recursive);
         }
-
-#if defined(GPU_OVERLOAD_HOST)
-        __host__ void reset(pointer ptr) { *this = managed_value(ptr); }
-#endif
-#if defined(GPU_OVERLOAD_DEVICE)
-        __device__ void reset(pointer ptr)
+        __host__ __device__ void reset(pointer ptr) { *this = managed_value(ptr); }
+        __host__ __device__ void reset() noexcept
         {
-            // no need to be freed on GPU
-            base::init();
-
-            // ref_count_ does not need to be set because it is not used on GPU
-            std::get<0>(base::data_) = ptr;
-            if (ptr != nullptr) base::size_ = 1;
-        }
+#ifdef GPU_DEVICE_COMPILE
+            reset(nullptr);
+#else
+            base::free();
 #endif
-
-        __host__ void reset() { base::free(); }
+        }
     };
 
     namespace detail
@@ -2558,6 +2532,9 @@ namespace gpu_ptr
     template <detail::array_convertible_for_copy Range1, detail::array_convertible_for_copy Range2>
     requires gpu_managed_ptr<Range2>
     jagged_array(const Range1&, const Range2&) -> jagged_array<Range2>;
+    template <detail::array_convertible_for_copy Range>
+    requires gpu_managed_ptr<Range>
+    jagged_array(std::initializer_list<size_type_default>, const Range&) -> jagged_array<Range>;
 
 }  // namespace gpu_ptr
 
