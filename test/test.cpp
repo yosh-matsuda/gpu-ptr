@@ -1203,6 +1203,19 @@ TEST(StructureOfArrays, Construction)
         }
     }
 
+    // construction from multiple initializer_lists
+    {
+        auto soa = structure_of_arrays<tuple_elem_type0, tuple_elem_type1>({0, 1, 2}, {0.5, 1.5, 2.5});
+        EXPECT_EQ(soa.size(), 3);
+        const auto soa_vec = soa.to<std::vector>();
+        EXPECT_EQ(std::get<0>(soa_vec[0]), 0);
+        EXPECT_EQ(std::get<1>(soa_vec[0]), 0.5);
+        EXPECT_EQ(std::get<0>(soa_vec[1]), 1);
+        EXPECT_EQ(std::get<1>(soa_vec[1]), 1.5);
+        EXPECT_EQ(std::get<0>(soa_vec[2]), 2);
+        EXPECT_EQ(std::get<1>(soa_vec[2]), 2.5);
+    }
+
     // construction from range of custom tuple
     {
         auto vec = std::vector<custom_tuple_example<tuple_elem_type0, tuple_elem_type1>>();
@@ -1534,6 +1547,19 @@ TEST(ManagedStructureOfArrays, Construction)
         }
     }
 
+    // construction from multiple initializer_lists
+    {
+        auto soa = managed_structure_of_arrays<tuple_elem_type0, tuple_elem_type1>({0, 1, 2}, {0.5, 1.5, 2.5});
+        EXPECT_EQ(soa.size(), 3);
+        const auto soa_vec = soa.to<std::vector>();
+        EXPECT_EQ(std::get<0>(soa_vec[0]), 0);
+        EXPECT_EQ(std::get<1>(soa_vec[0]), 0.5);
+        EXPECT_EQ(std::get<0>(soa_vec[1]), 1);
+        EXPECT_EQ(std::get<1>(soa_vec[1]), 1.5);
+        EXPECT_EQ(std::get<0>(soa_vec[2]), 2);
+        EXPECT_EQ(std::get<1>(soa_vec[2]), 2.5);
+    }
+
     // construction from range of custom tuple
     {
         auto vec = std::vector<custom_tuple_example<tuple_elem_type0, tuple_elem_type1>>();
@@ -1609,7 +1635,7 @@ TEST(ManagedStructureOfArrays, RangeInterface)
     static_assert(!std::ranges::borrowed_range<soa_type1>);
 #endif
     static_assert(std::ranges::view<soa_type1>);
-    // FIXME: static_assert(std::ranges::output_range<soa_type1, tuple_type>);
+    // Since C++23: static_assert(std::ranges::output_range<soa_type1, tuple_type>);
     static_assert(std::ranges::input_range<soa_type1>);
     static_assert(std::ranges::forward_range<soa_type1>);
     static_assert(std::ranges::bidirectional_range<soa_type1>);
@@ -1625,7 +1651,7 @@ TEST(ManagedStructureOfArrays, RangeInterface)
     static_assert(!std::ranges::borrowed_range<soa_type2>);
 #endif
     static_assert(std::ranges::view<soa_type2>);
-    // FIXME: static_assert(std::ranges::output_range<soa_type2, tuple_type>);
+    // Since C++23: static_assert(std::ranges::output_range<soa_type2, tuple_type>);
     static_assert(std::ranges::input_range<soa_type2>);
     static_assert(std::ranges::forward_range<soa_type2>);
     static_assert(std::ranges::bidirectional_range<soa_type2>);
@@ -1736,6 +1762,28 @@ TEST(ManagedStructureOfArrays, MemoryManagement)
 
 TEST(JaggedArray, Construction)
 {
+    // construction from sizes
+    {
+        auto jagged = jagged_array<managed_array<int>>(std::vector<std::size_t>{1, 3, 2});
+        EXPECT_EQ(jagged.size(), 6);
+        EXPECT_EQ(jagged.num_rows(), 3);
+        EXPECT_EQ(jagged.size(0), 1);
+        EXPECT_EQ(jagged.size(1), 3);
+        EXPECT_EQ(jagged.size(2), 2);
+        for (const auto& v : jagged) EXPECT_EQ(v, 0);
+    }
+
+    // construction from sizes of initializer_list
+    {
+        auto jagged = jagged_array<managed_array<int>>({1, 3, 2});
+        EXPECT_EQ(jagged.size(), 6);
+        EXPECT_EQ(jagged.num_rows(), 3);
+        EXPECT_EQ(jagged.size(0), 1);
+        EXPECT_EQ(jagged.size(1), 3);
+        EXPECT_EQ(jagged.size(2), 2);
+        for (const auto& v : jagged) EXPECT_EQ(v, 0);
+    }
+
     // construction from nested containers for jagged managed array
     {
         auto vec_vec =

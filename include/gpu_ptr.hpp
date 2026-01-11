@@ -113,7 +113,7 @@ namespace gpu_ptr
 
             __host__ __device__ size_type size() const noexcept { return size_; }
             __host__ __device__ bool empty() const noexcept { return size_ == 0; }
-            __host__ __device__ std::uint32_t use_count() const noexcept
+            __host__ std::uint32_t use_count() const noexcept
             {
                 return base::ref_count_ != nullptr ? *base::ref_count_ : 0U;
             }
@@ -1726,6 +1726,31 @@ namespace gpu_ptr
             }(std::make_index_sequence<num_arrays>());
         }
 
+        __host__ explicit structure_of_arrays(std::initializer_list<Ts>... lists)
+            : base(std::max({std::ranges::size(lists)...}))
+        {
+            if (base::size_ == 0) return;
+
+            auto sizes = std::array{std::ranges::size(lists)...};
+            if (!std::ranges::all_of(sizes, [s = base::size_](auto x) { return x == s; }))
+            {
+                throw std::invalid_argument("the sizes of arrays are not equal");
+            }
+
+            const auto alloc_ptr = [this]<typename T>(T*& ptr, const auto& range) {
+                auto buf = std::make_unique_for_overwrite<T[]>(base::size_);
+                std::ranges::copy(range, buf.get());
+                GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&ptr), sizeof(T) * base::size_));
+                assert(ptr != nullptr);
+                GPU_CHECK_ERROR(api::gpuMemcpy(ptr, buf.get(), sizeof(T) * base::size_, gpuMemcpyHostToDevice));
+            };
+
+            auto arrays_tuple = std::tuple<std::initializer_list<Ts>...>(lists...);
+            [this, &arrays_tuple, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
+                (alloc_ptr(std::get<N>(base::data_), std::get<N>(arrays_tuple)), ...);
+            }(std::make_index_sequence<num_arrays>());
+        }
+
         __host__ __device__ structure_of_arrays& operator=(const structure_of_arrays& r)
         {
             base::operator=(r);
@@ -2070,6 +2095,29 @@ namespace gpu_ptr
             }(std::make_index_sequence<num_arrays>());
         }
 
+        __host__ explicit managed_structure_of_arrays(std::initializer_list<Ts>... lists)
+            : base(std::max({std::ranges::size(lists)...}))
+        {
+            if (base::size_ == 0) return;
+
+            auto sizes = std::array{std::ranges::size(lists)...};
+            if (!std::ranges::all_of(sizes, [s = base::size_](auto x) { return x == s; }))
+            {
+                throw std::invalid_argument("the sizes of arrays are not equal");
+            }
+
+            const auto alloc_ptr = [this]<typename T>(T*& ptr, const auto& range) {
+                GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&ptr), sizeof(T) * base::size_));
+                assert(ptr != nullptr);
+                for (auto i = std::size_t{0}; const auto& v : range) std::ranges::construct_at(ptr + i++, v);
+            };
+
+            auto arrays_tuple = std::tuple<std::initializer_list<Ts>...>(lists...);
+            [this, &arrays_tuple, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
+                (alloc_ptr(std::get<N>(base::data_), std::get<N>(arrays_tuple)), ...);
+            }(std::make_index_sequence<num_arrays>());
+        }
+
         __host__ __device__ managed_structure_of_arrays& operator=(const managed_structure_of_arrays& r)
         {
             base::operator=(r);
@@ -2290,6 +2338,18 @@ namespace gpu_ptr
         template <detail::array_convertible_for_copy Range>
         requires std::constructible_from<size_type, std::ranges::range_value_t<Range>>
         __host__ explicit jagged_array(const Range& sizes)
+            : base(std::accumulate(std::ranges::begin(sizes), std::ranges::end(sizes), std::size_t{0})),
+              offsets_(std::ranges::size(sizes) + 1U, default_init)
+        {
+            offsets_[0] = 0;
+            for (size_type i = 0; const auto& s : sizes)
+            {
+                offsets_[i + 1] = offsets_[i] + static_cast<size_type>(s);
+                ++i;
+            }
+        }
+
+        __host__ jagged_array(std::initializer_list<size_type> sizes)
             : base(std::accumulate(std::ranges::begin(sizes), std::ranges::end(sizes), std::size_t{0})),
               offsets_(std::ranges::size(sizes) + 1U, default_init)
         {
