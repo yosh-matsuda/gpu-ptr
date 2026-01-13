@@ -1370,7 +1370,6 @@ TEST(StructureOfArrays, RangeInterface)
 
 TEST(StructureOfArrays, SmartPointerInterface)
 {
-    using tuple_type = std::tuple<int, double>;
     using soa_type = structure_of_arrays<int, double>;
     auto soa = soa_type(10);
 
@@ -1698,7 +1697,6 @@ TEST(ManagedStructureOfArrays, RangeInterface)
 
 TEST(ManagedStructureOfArrays, SmartPointerInterface)
 {
-    using tuple_type = std::tuple<int, double>;
     using soa_type = managed_structure_of_arrays<int, double>;
     auto soa = soa_type(10);
 
