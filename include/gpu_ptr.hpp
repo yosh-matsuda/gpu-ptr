@@ -2588,6 +2588,264 @@ namespace gpu_ptr
     requires gpu_managed_ptr<Range>
     jagged_array(std::initializer_list<size_type_default>, const Range&) -> jagged_array<Range>;
 
+    namespace detail
+    {
+        enum class Stride : std::uint8_t
+        {
+            BlockThread,
+            GridThread,
+            GridBlock,
+#if !defined(ENABLE_HIP)
+            ClusterThread,
+            ClusterBlock,
+            GridCluster
+#endif
+        };
+
+        template <std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class stride_sentinel;
+
+        template <std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class stride_iterator_base
+        {
+            template <typename T>
+            __host__ __device__ friend bool operator==(const stride_iterator_base<T>& it,
+                                                       const stride_sentinel<T>& se) noexcept;
+
+        public:
+            stride_iterator_base() = default;
+            __host__ __device__ std::ranges::range_reference_t<Range> operator*() const noexcept
+            {
+                return (*pointer_)[index_];
+            }
+
+        protected:
+            __host__ __device__ explicit stride_iterator_base(Range&& r,
+                                                              std::ranges::range_size_t<Range> index) noexcept
+                : pointer_(&r), index_(index)
+            {
+            }
+
+            std::remove_reference_t<Range>* pointer_ = nullptr;
+            std::ranges::range_size_t<Range> index_ = 0;
+        };
+
+        template <std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class stride_sentinel
+        {
+            template <typename T>
+            __host__ __device__ friend bool operator==(const stride_iterator_base<T>& it,
+                                                       const stride_sentinel<T>& se) noexcept;
+
+        public:
+            stride_sentinel() = default;
+            __host__ __device__ explicit stride_sentinel(Range&& r) noexcept : end_(r.size()) {}
+
+        protected:
+            std::ranges::range_size_t<Range> end_ = 0;
+        };
+
+        template <typename T>
+        __host__ __device__ inline bool operator==(const stride_iterator_base<T>& it,
+                                                   const stride_sentinel<T>& se) noexcept
+        {
+            return it.index_ >= se.end_;
+        }
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class stride_iterator : public stride_iterator_base<Range>
+        {
+            using base = stride_iterator_base<Range>;
+
+            __host__ __device__ static auto get_initial_index() noexcept
+            {
+#if defined(GPU_DEVICE_COMPILE)
+                using namespace cooperative_groups;  // NOLINT
+                if constexpr (StrideType == Stride::BlockThread)
+                {
+                    return this_thread_block().thread_rank();
+                }
+                else if constexpr (StrideType == Stride::GridThread)
+                {
+                    return this_grid().thread_rank();
+                }
+#if defined(ENABLE_HIP)
+                else if constexpr (StrideType == Stride::GridBlock)
+                {
+                    return (static_cast<unsigned long long>(blockIdx.z) * gridDim.y * gridDim.x) +  // NOLINT
+                           (static_cast<unsigned long long>(blockIdx.y) * gridDim.x) +              // NOLINT
+                           static_cast<unsigned long long>(blockIdx.x);                             // NOLINT
+                }
+#else
+                else if constexpr (StrideType == Stride::GridBlock)
+                {
+                    return this_grid().block_rank();
+                }
+                else if constexpr (StrideType == Stride::ClusterThread)
+                {
+                    return this_cluster().thread_rank();
+                }
+                else if constexpr (StrideType == Stride::ClusterBlock)
+                {
+                    return this_cluster().block_rank();
+                }
+                else if constexpr (StrideType == Stride::GridCluster)
+                {
+                    return this_grid().cluster_rank();
+                }
+#endif
+                else
+                {
+                    static_assert([]() { return false; }(), "invalid StrideType");
+                }
+#else
+                return 0;
+#endif
+            }
+
+            __host__ __device__ static auto get_stride() noexcept
+            {
+#if defined(GPU_DEVICE_COMPILE)
+                using namespace cooperative_groups;  // NOLINT
+                if constexpr (StrideType == Stride::BlockThread)
+                {
+                    return this_thread_block().size();
+                }
+                else if constexpr (StrideType == Stride::GridThread)
+                {
+                    return this_grid().size();
+                }
+#if defined(ENABLE_HIP)
+                else if constexpr (StrideType == Stride::GridBlock)
+                {
+                    return static_cast<unsigned long long>(gridDim.x) * (gridDim.y * gridDim.z);  // NOLINT
+                }
+#else
+                else if constexpr (StrideType == Stride::GridBlock)
+                {
+                    return this_grid().num_blocks();
+                }
+                else if constexpr (StrideType == Stride::ClusterThread)
+                {
+                    return this_cluster().size();
+                }
+                else if constexpr (StrideType == Stride::ClusterBlock)
+                {
+                    return this_cluster().num_blocks();
+                }
+                else if constexpr (StrideType == Stride::GridCluster)
+                {
+                    return this_grid().num_clusters();
+                }
+#endif
+                else
+                {
+                    static_assert([]() { return false; }(), "invalid StrideType");
+                }
+#else
+                return 1;
+#endif
+            }
+
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = std::ranges::range_value_t<Range>;
+            using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
+
+            __host__ __device__ explicit stride_iterator(Range&& r) noexcept
+                : base(std::forward<Range>(r), get_initial_index())
+            {
+            }
+            __host__ __device__ stride_iterator& operator++() noexcept
+            {
+                base::index_ += get_stride();
+                return *this;
+            }
+            __host__ __device__ stride_iterator operator++(int) noexcept
+            {
+                auto res = *this;
+                ++(*this);
+                return res;
+            }
+            __host__ __device__ bool operator==(const stride_iterator& it) const noexcept
+            {
+                return base::index_ == it.index_;
+            }
+        };
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class stride_view : public std::ranges::view_interface<stride_view<StrideType, Range>>
+        {
+        public:
+            stride_view() = default;
+            __host__ __device__ explicit stride_view(Range&& r) noexcept : pointer_(&r) {}
+            [[nodiscard]] __host__ __device__ auto begin() const noexcept
+            {
+                return stride_iterator<StrideType, Range>(*pointer_);
+            }
+            [[nodiscard]] __host__ __device__ auto end() const noexcept { return stride_sentinel<Range>(*pointer_); }
+
+        private:
+            std::remove_reference_t<Range>* pointer_ = nullptr;
+        };
+
+        template <Stride StrideType>
+        struct stride_adapter
+        {
+            template <std::ranges::random_access_range Range>
+            [[nodiscard]] constexpr auto operator()(const Range& r) const noexcept
+            {
+                return stride_view<StrideType, const Range&>(r);
+            }
+            template <std::ranges::random_access_range Range>
+            [[nodiscard]] constexpr auto operator()(Range& r) const noexcept
+            {
+                return stride_view<StrideType, Range&>(r);
+            }
+
+            template <std::ranges::random_access_range Range>
+            [[nodiscard]] friend constexpr std::ranges::view auto operator|(const Range& range,
+                                                                            const stride_adapter& self) noexcept
+            {
+                return self(range);
+            }
+            template <std::ranges::random_access_range Range>
+            [[nodiscard]] friend constexpr std::ranges::view auto operator|(Range& range,
+                                                                            const stride_adapter& self) noexcept
+            {
+                return self(range);
+            }
+        };
+    }  // namespace detail
+
+    namespace views
+    {
+        using detail::Stride;
+#ifdef GPU_CHECK_ERROR
+        __device__ static constexpr detail::stride_adapter<Stride::BlockThread> block_thread_stride;
+        __device__ static constexpr detail::stride_adapter<Stride::GridThread> grid_thread_stride;
+        __device__ static constexpr detail::stride_adapter<Stride::GridBlock> grid_block_stride;
+#if !defined(ENABLE_HIP)
+        __device__ static constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
+        __device__ static constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
+        __device__ static constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
+#endif
+#else
+        inline constexpr detail::stride_adapter<Stride::BlockThread> block_thread_stride;
+        inline constexpr detail::stride_adapter<Stride::GridThread> grid_thread_stride;
+        inline constexpr detail::stride_adapter<Stride::GridBlock> grid_block_stride;
+#if !defined(ENABLE_HIP)
+        inline constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
+        inline constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
+        inline constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
+#endif
+#endif
+    }  // namespace views
 }  // namespace gpu_ptr
 
 // speciialization for std::ranges

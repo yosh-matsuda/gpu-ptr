@@ -13,6 +13,7 @@ By abstracting away raw pointers and manual cudaFree/hipFree calls, gpu-ptr allo
     *   Jagged Array Wrappers: Manage multi-dimensional data with varying row lengths using a single, efficient 1-D memory allocation and optimized access patterns.
 *   C++20 Integration:
     *   Compatible with modern standards, including ranges and iterator concepts even for GPU kernel code.
+    *   Range adapters for grid-stride access patterns (e.g., block-thread, grid-thread, grid-block, etc.).
 *   Dual backend:
     *   Support for NVIDIA CUDA and AMD HIP.
 *   Header-only library and no external dependencies.
@@ -39,13 +40,12 @@ These classes automatically handle memory allocation and deallocation on the GPU
 using namespace gpu_ptr;
 using namespace cooperative_groups;
 
-// Example kernel: set index to each element
+// Example kernel: initialize all elements
 template <std::ranges::input_range T>
 __global__ void kernel(T array)
 {
-    const auto block = this_thread_block();
-    for (auto i = block.thread_rank(); i < array.size(); i += block.size())
-        array[i] += i;
+    for (auto& v : array | views::grid_thread_stride)
+        v += 1;
 }
 
 void example()
@@ -89,9 +89,9 @@ void example()
 }
 ```
 
-### Nested arrays support
+### Grid-stride range adapters
 
-The gpu-ptr supports nested arrays via nested `managed_array` classes. This allows for multi-dimensional array management on the GPU with automatic memory handling.
+The kernel code can utilize C++20 range views for grid-stride access patterns (so-called grid-stride loop). The gpu-ptr provides several [Range Adapter Closure Object](https://en.cppreference.com/w/cpp/named_req/RangeAdaptorClosureObject.html) such as `views::block_thread_stride`, `views::grid_thread_stride`, and `views::grid_block_stride` to facilitate this without any overhead. The blow example demonstrates how to achieve memory coalescing when initializing nested arrays using grid-stride access.
 
 ```cpp
 #include <gpu_ptr.hpp>
@@ -106,26 +106,37 @@ template <std::ranges::input_range T>
 requires std::ranges::input_range<std::ranges::range_value_t<T>>
 __global__ void kernel_example(T array)
 {
-    const auto block = this_thread_block();
-    for (auto& inner_array : array)
+    for (auto& a : array | views::grid_block_stride)
     {
-        for (auto i = block.thread_rank(); i < inner_array.size(); i += block.size())
+        for (auto& v : a | views::block_thread_stride)
         {
-            inner_array[i] = i;
+            v *= 2;
         }
     }
+
+    /* The above code is equivalent to the following:
+    const auto grid = this_grid();
+    const auto block = this_thread_block();
+    for (auto i = grid.block_rank(); i < array.size(); i += grid.num_blocks())
+    {
+        for (auto j = block.thread_rank(); j < array[i].size(); j += block.size())
+        {
+            array[i][j] *= 2;
+        }
+    }
+    */
 }
 
 void example()
 {
     // Create nested vector on host
-    auto vec_vec = std::vector(32, std::vector<int>(128));
+    auto vec_vec = std::vector(256, std::vector<int>(1024, 1));
 
     // Convert from nested host vector to nested device array
     auto nested_array = managed_array(vec_vec);
 
     // Launch kernel to initialize nested array
-    kernel_example<<<1, 32>>>(nested_array);
+    kernel_example<<<32, 256>>>(nested_array);
     api::gpuDeviceSynchronize();
 
     // Print results
@@ -169,13 +180,12 @@ using Struct = CustomTuple<int, float, double>;
 template <std::ranges::input_range T>
 __global__ void kernel_example(T array)
 {
-    const auto block = this_thread_block();
-    for (auto i = block.thread_rank(); i < array.size(); i += block.size())
+    for (auto&& v : array | views::grid_thread_stride)
     {
         // Access structure members for both AoS and SoA
-        array[i].get_a() *= 2;
-        array[i].get_b() *= 2.0f;
-        array[i].get_c() *= 2.0;
+        v.get_a() *= 2;
+        v.get_b() *= 2.0f;
+        v.get_c() *= 2.0;
     }
 }
 
@@ -211,13 +221,12 @@ The logical and physical data layout of `jagged_array` is as follows:
 using namespace gpu_ptr;
 using namespace cooperative_groups;
 
-// Example kernel: modify each element
+// Example kernel: modify all elements
 template <std::ranges::input_range T>
 __global__ void kernel(T array)
 {
-    const auto block = this_thread_block();
-    for (auto i = block.thread_rank(); i < array.size(); i += block.size())
-        array[i] *= 2;
+    for (auto& v : array | views::grid_thread_stride)
+        v *= 2;
 }
 
 auto vec = std::vector<int>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -677,7 +686,7 @@ Where:
 4.  Constructors from ranges of tuple-derived class copy data from host containers to device memory. Copying from `structure_of_arrays` and `managed_structure_of_arrays` types is not allowed to avoid unintended device-to-device copies.
 5.  Constructors from multiple ranges copy data from each host container to corresponding member arrays on the device.
 
-### Exporters
+#### Exporters
 
 ```cpp
 // (1) Copy data to host container
@@ -696,7 +705,7 @@ Where:
 1.  `to<Constainer>()` copies data from device to host container (e.g., `std::vector<Tuple<Ts...>>`, `std::list<Tuple<Ts...>>`). Range value type can be deduced automatically (e.g., `to<std::vector>() -> std::vector<Tuple<Ts...>>`).
 2.  Explicit conversion operator to host container, equivalent to `to<Container>()`.
 
-### Range interface
+#### Range interface
 
 Member types:
 
@@ -839,7 +848,7 @@ Where:
 3.  Wrapper for `cudaMemAdvise/hipMemAdvise` to set memory advice for unified memory. The former overload sets advice for a memory range, while the latter overload sets advice for the entire memory. If `recursive` is true and the value type of the array has `mem_advise(...)` function, mem_advise is called recursively for nested or member arrays.
 4.  Host memory advice overloads with similar behavior to (3).
 
-### Jagged array
+### `jagged_array`
 
 ```cpp
 template <typename T, typename SizeType = size_type_default>
@@ -933,6 +942,173 @@ Inherited from the base array type (`managed_array` or `managed_structure_of_arr
 #### Memory managements
 
 Inherited from the base array type (`managed_array` or `managed_structure_of_arrays`).
+
+### Grid-stride range adapter
+
+The following range adapter closure objects in the `views` namespace are provided for grid-stride loops in GPU kernels.
+
+```cpp
+views::block_thread_stride;
+views::cluster_thread_stride;   // [*]
+views::grid_thread_stride;
+views::cluster_block_stride;    // [*]
+views::grid_block_stride;       // [*]
+views::grid_cluster_stride;     // [*]
+
+// [*] Currently available only with CUDA backends.
+```
+
+They produces a view that consists of advancing the N-th element of the original range by a specified stride M. The pairs N and M correspond to the index of the thread/block/cluster within the block/cluster/grid and the number of threads/blocks/clusters, respectively.
+
+#### `views::block_thread_stride`
+
+The stride access based on the **thread index** and the number of threads in the **block**.
+
+Example usage:
+
+```cpp
+for (auto& v : array | views::block_thread_stride)
+{
+    // loop body
+    v = ...;
+}
+```
+
+which is equivalent to:
+
+```cpp
+const auto block = cooperative_groups::this_thread_block();
+for (auto i = static_cast<decltype(array.size())>(block.thread_rank()); i < array.size(); i += block.num_threads())
+{
+    // loop body
+    array[i] = ...;
+}
+```
+
+#### `views::cluster_thread_stride`
+
+The stride access based on the **thread index** and the number of threads in the **cluster**.
+
+Example usage:
+
+```cpp
+for (auto& v : array | views::cluster_thread_stride)
+{
+    // loop body
+    v = ...;
+}
+```
+
+which is equivalent to:
+
+```cpp
+const auto cluster = cooperative_groups::this_cluster();
+for (auto i = static_cast<decltype(array.size())>(cluster.thread_rank()); i < array.size(); i += cluster.num_threads())
+{
+    // loop body
+    array[i] = ...;
+}
+```
+
+#### `views::grid_thread_stride`
+
+The stride access based on the **thread index** and the number of threads in the **grid**.
+
+Example usage:
+
+```cpp
+for (auto& v : array | views::grid_thread_stride)
+{
+    // loop body
+    v = ...;
+}
+```
+
+which is equivalent to:
+
+```cpp
+const auto grid = cooperative_groups::this_grid();
+for (auto i = static_cast<decltype(array.size())>(grid.thread_rank()); i < array.size(); i += grid.num_threads())
+{
+    // loop body
+    array[i] = ...;
+}
+```
+
+#### `views::cluster_block_stride`
+
+The stride access based on the **block index** and the number of blocks in the **cluster**.
+
+Example usage:
+
+```cpp
+for (auto& v : array | views::cluster_block_stride)
+{
+    // loop body
+    v = ...;
+}
+```
+
+which is equivalent to:
+
+```cpp
+const auto cluster = cooperative_groups::this_cluster();
+for (auto i = static_cast<decltype(array.size())>(cluster.block_rank()); i < array.size(); i += cluster.num_blocks())
+{
+    // loop body
+    array[i] = ...;
+}
+```
+
+#### `views::grid_block_stride`
+
+The stride access based on the **block index** and the number of blocks in the **grid**.
+
+Example usage:
+
+```cpp
+for (auto& v : array | views::grid_block_stride)
+{
+    // loop body
+    v = ...;
+}
+```
+
+which is equivalent to:
+
+```cpp
+const auto grid = cooperative_groups::this_grid();
+for (auto i = static_cast<decltype(array.size())>(grid.block_rank()); i < array.size(); i += grid.num_blocks())
+{
+    // loop body
+    array[i] = ...;
+}
+```
+
+#### `views::grid_cluster_stride`
+
+The stride access based on the **cluster index** and the number of clusters in the **grid**.
+
+Example usage:
+
+```cpp
+for (auto& v : array | views::grid_cluster_stride)
+{
+    // loop body
+    v = ...;
+}
+```
+
+which is equivalent to:
+
+```cpp
+const auto grid = cooperative_groups::this_grid();
+for (auto i = static_cast<decltype(array.size())>(grid.cluster_rank()); i < array.size(); i += grid.num_clusters())
+{
+    // loop body
+    array[i] = ...;
+}
+```
 
 ### Utilities
 
