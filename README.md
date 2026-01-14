@@ -1,16 +1,18 @@
 # gpu-ptr: Make GPU programming more modern C++ friendly
 
-gpu-ptr is a header-only C++ library that provides smart pointer-like wrappers for managing GPU memory in a more modern C++ style. It aims to simplify memory management and improve code safety when working with GPU resources.
+gpu-ptr is a header-only C++20 library that brings RAII and Range-based abstractions to GPU memory management and data layouts, enabling code safety and performance optimizations with zero overhead. By abstracting away raw pointers and memory layouts, gpu-ptr allows developers to focus on algorithm logic rather than resource bookkeeping.
 
-By abstracting away raw pointers and manual cudaFree/hipFree calls, gpu-ptr allows developers to focus on algorithm logic rather than resource bookkeeping.
+Maximum GPU performance with Modern C++ syntax.
+
+[![Tests](https://github.com/yosh-matsuda/gpu-ptr/actions/workflows/tests.yml/badge.svg)](https://github.com/yosh-matsuda/gpu-ptr/actions/workflows/tests.yml)
 
 ## Features
 
 *   Smart pointer-like wrappers:
     *   Full RAII (Resource Acquisition Is Initialization) support for GPU memory management, ensuring automatic cleanup.
-*   Optimized Memory Layouts for GPU performance:
-    *   AoS to SoA Conversion: Transformation of Array-of-Structures (AoS) to Structure-of-Arrays (SoA) to ensure coalesced memory access for maximum GPU throughput. AoS stores data as contiguous structures, while SoA separates each field into its own array for better memory access patterns.
-    *   Jagged Array Wrappers: Manage multi-dimensional data with varying row lengths using a single, efficient 1-D memory allocation and optimized access patterns.
+*   Performance-Oriented Memory Layouts:
+    *   AoS to SoA Conversion: Converting Array-of-Structures (AoS) to Structure-of-Arrays (SoA) to ensure coalesced memory access for maximum GPU throughput. AoS stores data as contiguous structures, while SoA separates each field into its own array for better memory access patterns.
+    *   Jagged Array Wrappers: Manage multi-dimensional data with varying row lengths using a single, efficient 1-D memory allocation and optimized for cache locality and performance.
 *   C++20 Integration:
     *   Compatible with modern standards, including ranges and iterator concepts even for GPU kernel code.
     *   Range adapters for grid-stride access patterns (e.g., block-thread, grid-thread, grid-block, etc.).
@@ -18,18 +20,41 @@ By abstracting away raw pointers and manual cudaFree/hipFree calls, gpu-ptr allo
     *   Support for NVIDIA CUDA and AMD HIP.
 *   Header-only library and no external dependencies.
 
-## Quick Start
-
-Clone this project and include `gpu_ptr.hpp` in your source files.
-
 ### Requirements
 
-*   CUDA 12.0 or later / HIP 6.2 or later
-*   C++20 compatible compiler (e.g., GCC 13+, Clang 14+)
+Tested with the following environments:
 
-### Device memory management with smart pointers
+*   CUDA 12.6.3 or later / HIP 6.2.4 or later
+    *   🆖 CUDA 12.9.X: compiler segmentation faults
+*   GCC 13 or later, Clang 16 or later
 
-The gpu-ptr provides several smart pointer-like classes to manage GPU memory, including `array` and `managed_array` for arrays with range concepts, and `value` and `managed_value` for single value pointers.  
+## Quick Start
+
+### Installation
+
+As a header-only library, you can simply copy the `include` directory to your project. If you are using CMake, you can add the following lines to your `CMakeLists.txt`:
+
+```cmake
+add_subdirectory(path/to/gpu-ptr)
+target_link_libraries(your_target PRIVATE gpu_ptr::gpu_ptr)
+```
+
+Alternatively, you can use CMake's `FetchContent` module instead of manually downloading the library:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+    gpu_ptr
+    GIT_REPOSITORY https://github.com/yosh-matsuda/gpu-ptr.git
+    GIT_TAG v0.3.0
+)
+FetchContent_MakeAvailable(gpu_ptr)
+target_link_libraries(your_target PRIVATE gpu_ptr::gpu_ptr)
+```
+
+### Example: Device memory management with smart pointers
+
+gpu-ptr provides several smart pointer-like classes to manage GPU memory, including `array` and `managed_array` for arrays with range concepts, and `value` and `managed_value` for single value pointers.  
 These classes automatically handle memory allocation and deallocation on the GPU. The `managed_` variants use unified memory, allowing seamless access from both host and device.
 
 ```cpp
@@ -38,7 +63,6 @@ These classes automatically handle memory allocation and deallocation on the GPU
 #include <iostream>
 
 using namespace gpu_ptr;
-using namespace cooperative_groups;
 
 // Example kernel: initialize all elements
 template <std::ranges::input_range T>
@@ -55,6 +79,8 @@ void example()
 
     // Launch kernel to set values
     kernel<<<1, 128>>>(array);
+
+    // Wrapper for cudaDeviceSynchronize/hipDeviceSynchronize
     api::gpuDeviceSynchronize();
 
     // Print results
@@ -62,7 +88,9 @@ void example()
 }
 ```
 
-### Conversion from host to device memory and vice versa
+gpu-ptr also provides safe initialization for memory allocation. For memory accessible only from the GPU (`array` and `value`), it checks at compile time that the type is safe for `memcpy` and initializes the allocated memory using the specified method. For Unified memory accessible from both the GPU and CPU (`managed_array` and `managed_value`), it constructs each element by calling its constructor.
+
+### Example: Conversion from host to device memory and vice versa
 
 Arrays and values classes can be easily converted from and to C++ containers (e.g., `std::vector`, `std::array`). The data is copied from host to device during construction.
 
@@ -89,9 +117,9 @@ void example()
 }
 ```
 
-### Grid-stride range adapters
+### Example: Grid-stride range adapters
 
-The kernel code can utilize C++20 range views for grid-stride access patterns (so-called grid-stride loop). The gpu-ptr provides several [Range Adapter Closure Object](https://en.cppreference.com/w/cpp/named_req/RangeAdaptorClosureObject.html) such as `views::block_thread_stride`, `views::grid_thread_stride`, and `views::grid_block_stride` to facilitate this without any overhead. The blow example demonstrates how to achieve memory coalescing when initializing nested arrays using grid-stride access.
+The kernel code can utilize C++20 range views for grid-stride access patterns (so-called grid-stride loop). gpu-ptr provides several [Range Adapter Closure Object](https://en.cppreference.com/w/cpp/named_req/RangeAdaptorClosureObject.html) such as `views::block_thread_stride`, `views::grid_thread_stride`, and `views::grid_block_stride` to facilitate this without any overhead. The following example demonstrates how to achieve memory coalescing when initializing nested arrays using grid-stride access.
 
 ```cpp
 #include <gpu_ptr.hpp>
@@ -99,7 +127,6 @@ The kernel code can utilize C++20 range views for grid-stride access patterns (s
 #include <vector>
 
 using namespace gpu_ptr;
-using namespace cooperative_groups;
 
 // Example kernel: initialize nested array
 template <std::ranges::input_range T>
@@ -115,6 +142,7 @@ __global__ void kernel_example(T array)
     }
 
     /* The above code is equivalent to the following:
+    using namespace cooperative_groups;
     const auto grid = this_grid();
     const auto block = this_thread_block();
     for (auto i = grid.block_rank(); i < array.size(); i += grid.num_blocks())
@@ -148,13 +176,13 @@ void example()
 }
 ```
 
-### Support for AoS and SoA
+### Example: AoS and SoA
 
-The gpu-ptr supports both Array of structures (AoS) and Structure of arrays (SoA) for memory layout optimization via `array` and `structure_of_arrays` classes, respectively. The choice of which provides better global memory throughput depends on the situation to maximize coalescing across threads within a warp. In either case, gpu-ptr provides a structure retrieval interface via array indices. Thus, `structure_of_arrays<tuple-derived>` can be used as a drop-in replacement for `array<tuple-derived>` with optimizing memory layout.
-
-The memory layout comparison between `array` (AoS) and `structure_of_arrays` (SoA) is as follows:
+gpu-ptr supports both Array of structures (AoS) and Structure of arrays (SoA) for memory layout optimization via `array` and `structure_of_arrays` classes, respectively. The memory layout comparison between `array` (AoS) and `structure_of_arrays` (SoA) is as follows:
 
 ![array of structure vs. structure_of_arrays](https://github.com/user-attachments/assets/219085eb-80c7-44e5-9e3b-6607bd8174bf)
+
+ In either case, gpu-ptr provides a structure retrieval interface via array indices. Thus, `structure_of_arrays<tuple-derived>` can be used as a drop-in replacement for `array<tuple-derived>` with optimizing memory layout without altering your algorithm's implementation.
 
 ```cpp
 #include <gpu_ptr.hpp>
@@ -162,9 +190,9 @@ The memory layout comparison between `array` (AoS) and `structure_of_arrays` (So
 #include <vector>
 
 using namespace gpu_ptr;
-using namespace cooperative_groups;
 
-// tuple-derived struct template
+// std::tuple or its derived struct can be used as structure type
+// The below example shows a tuple-derived struct with three members and their accessors
 template <typename... Ts>
 requires (sizeof...(Ts) == 3)
 struct CustomTuple : public std::tuple<Ts...>
@@ -204,9 +232,12 @@ void example()
 }
 ```
 
-### Jagged array
+> [!TIP]
+> Which is better, AoS or SoA? It depends on the access pattern to the structure members within a warp, the size of the structure, and the number of available registers. If all threads in a warp access the same member of the structure, SoA is generally better for maximizing coalesced memory access. However, if each thread accesses entire structures or different members, AoS may be more efficient due to better cache locality. Benchmarking both layouts with representative workloads is recommended to determine the optimal choice for your specific use case. Whichever, **gpu-ptr makes it easy to switch between AoS and SoA without changing the access interface**.
 
-The gpu-ptr provides `jagged_array` class to manage multi-dimensional array with varying row lengths, using a single memory allocation to maximize coalescing access.
+### Example: Jagged array
+
+gpu-ptr provides `jagged_array` class to manage multi-dimensional array with varying row lengths, using a **single memory allocation to maximize coalescing access**.
 This behaves like a wrapper for `managed_array` or `managed_jagged_array` with multi-dimensional indexing. The `jagged_array` is constructed from a 1-D array with sizes or multi-dimensional container (e.g., `std::vector<std::vector<T>>`).
 
 The logical and physical data layout of `jagged_array` is as follows:
@@ -219,7 +250,6 @@ The logical and physical data layout of `jagged_array` is as follows:
 #include <vector>
 
 using namespace gpu_ptr;
-using namespace cooperative_groups;
 
 // Example kernel: modify all elements
 template <std::ranges::input_range T>
@@ -254,6 +284,112 @@ void example()
     }
 }
 ```
+
+### Zero-overhead
+
+gpu-ptr is designed to have zero-overhead compared to traditional raw pointer usage. The following example shows equivalent kernels using raw pointers and `managed_array` as verified by PTX analysis. The generated PTX assembly code for both kernels is identical, confirming that there is no performance penalty when using gpu-ptr abstractions with range adapters.
+
+```cpp
+// Traditional raw pointer kernel
+__global__ void func0(int* data, std::uint32_t size)
+{
+    const auto block = cooperative_groups::this_thread_block();
+    for (std::uint32_t i = block.thread_rank(); i < size; i += block.size())
+    {
+        data[i] = 1;
+    }
+}
+
+// Using managed_array
+__global__ void func1(managed_array<int, std::uint32_t> arr)
+{
+    const auto block = cooperative_groups::this_thread_block();
+    for (std::uint32_t i = block.thread_rank(); i < arr.size(); i += block.size())
+    {
+        arr[i] = 1;
+    }
+}
+
+// Using managed_array with range adapters
+__global__ void func3(managed_array<int, std::uint32_t> arr)
+{
+    for (auto& v : arr | views::block_thread_stride)
+    {
+        v = 1;
+    }
+}
+```
+
+<details>
+
+<summary>The identical PTX assembly code (except parameters) generated for the above three kernels is as follows:</summary>
+
+```text
+// Function Definition: _Z5func3... (Mangled C++ name for a template function)
+// It accepts a 'managed_array' struct by value, which is 24 bytes in size.
+.visible .entry _Z5func3IN7gpu_ptr13managed_arrayIijEEEvT_(
+    .param .align 8 .b8 _Z5func3IN7gpu_ptr13managed_arrayIijEEEvT__param_0[24]
+)
+{
+    // Register Declarations
+    .reg .pred  %p<3>;   // Predicate registers for logic
+    .reg .b32  %r<17>;  // 32-bit integer registers
+    .reg .b64  %rd<6>;  // 64-bit registers for pointers/addresses
+
+    // --- Extracting values from the Struct Parameter ---
+    // The struct is laid out in memory:
+    // Offset 0: Array Size (32-bit)
+    // Offset 8: Base Pointer (64-bit)
+    ld.param.u64  %rd1, [_Z5func3IN7gpu_ptr13managed_arrayIijEEEvT__param_0+8]; // Load data pointer
+    ld.param.u32  %r5, [_Z5func3IN7gpu_ptr13managed_arrayIijEEEvT__param_0];    // Load array size N
+
+    // --- Calculate 1D Thread Index (%r16) ---
+    // Formula: idx = (tid.z * ntid.y + tid.y) * ntid.x + tid.x
+    mov.u32  %r2, %ntid.y;              // %r2 = blockDim.y
+    mov.u32  %r9, %tid.z;               // %r9 = threadIdx.z
+    mov.u32  %r10, %tid.y;              // %r10 = threadIdx.y
+    mad.lo.s32  %r11, %r2, %r9, %r10;   // %r11 = (blockDim.y * threadIdx.z) + threadIdx.y
+
+    mov.u32  %r3, %ntid.x;              // %r3 = blockDim.x
+    mov.u32  %r12, %tid.x;              // %r12 = threadIdx.x
+    mad.lo.s32  %r16, %r11, %r3, %r12;  // %r16 = (%r11 * blockDim.x) + threadIdx.x
+
+    // --- Initial Boundary Check ---
+    setp.ge.u32  %p1, %r16, %r5;        // if (idx >= N)
+    @%p1 bra  $L__BB2_3;                // Exit if initial index is out of bounds
+
+    // --- Calculate Stride (Total Threads in Block) ---
+    // stride = blockDim.x * blockDim.y * blockDim.z
+    mul.lo.s32  %r13, %r3, %r2;         // %r13 = blockDim.x * blockDim.y
+    mov.u32  %r14, %ntid.z;             // %r14 = blockDim.z
+    mul.lo.s32  %r6, %r13, %r14;        // %r6 = total threads (stride)
+
+    // Convert generic pointer to global memory pointer
+    cvta.to.global.u64  %rd3, %rd1;     // %rd3 = global(data)
+
+// --- Main Loop: Grid-Stride Writing ---
+$L__BB2_2:
+    // Memory address calculation: addr = base + (idx * 4)
+    mul.wide.u32  %rd4, %r16, 4;        // Calculate 64-bit byte offset
+    add.s64  %rd5, %rd3, %rd4;          // Add offset to base pointer
+
+    // Store integer 1 into memory
+    mov.u32  %r15, 1;                   // Value = 1
+    st.global.u32  [%rd5], %r15;        // data[idx] = 1;
+
+    // Increment index by stride
+    add.s32  %r16, %r16, %r6;           // idx += stride;
+
+    // Loop Condition
+    setp.lt.u32  %p2, %r16, %r5;        // if (idx < N)
+    @%p2 bra  $L__BB2_2;                // Repeat if within bounds
+
+$L__BB2_3:
+    ret;                                // Kernel end
+}
+```
+
+</details>
 
 ### Tips
 
@@ -454,7 +590,7 @@ Where:
 
 Note: The device-side `reset` function does not affect to the memory management on the host side. It only changes the internal pointer and size on the device side.
 
-#### Memory managements
+#### Memory management
 
 Note: Memory management functions are only available for `managed_array` since they use unified memory.
 
@@ -494,7 +630,7 @@ template <typename T>
 class managed_value;
 ```
 
-The `value` and `managed_value` classes provide smart pointer-like wrappers for managing single values on the GPU. They allows seamless integration and exporting to/from host values. The managed variant uses unified memory for easy access from both host and device. The non-managed variant allocates memory on the device using `cudaMalloc/hipMalloc` and `cudaMemcpy/hipMemcpy` for data transfer, which requires the type `T` to be trivially copyable for safety.
+The `value` and `managed_value` classes provide smart pointer-like wrappers for managing single values on the GPU. They allow seamless integration and exporting to/from host values. The managed variant uses unified memory for easy access from both host and device. The non-managed variant allocates memory on the device using `cudaMalloc/hipMalloc` and `cudaMemcpy/hipMemcpy` for data transfer, which requires the type `T` to be trivially copyable for safety.
 
 #### Constructors
 
@@ -582,7 +718,7 @@ Where:
 
 Note: The device-side `reset` function does not affect to the memory management on the host side. It only changes the internal pointer on the device side.
 
-#### Memory managements
+#### Memory management
 
 Note: Memory management functions are only available for `managed_value` since they use unified memory.
 
@@ -819,7 +955,7 @@ Where:
 
 Note: The device-side `reset` function does not affect to the memory management on the host side. It only changes the internal pointer on the device side.
 
-#### Memory managements
+#### Memory management
 
 Note: Memory management functions are only available for `managed_structure_of_arrays` since they use unified memory.
 
@@ -857,7 +993,7 @@ template <template <typename...> typename Tuple = std::tuple, typename... Ts, ty
 class jagged_array : public managed_structure_of_arrays<Tuple<Ts...>, SizeType>;
 ```
 
-The `jagged_array` class provides wrapper for managing multi-dimensional arrays with varying row lengths (jagged arrays) on the GPU. It derived from the base array type, which can be either `managed_array<T>` or `structure_of_arrays<Tuple<Ts...>>`, to utilize their memory management and range interfaces. The jagged array has additional offsets to handle varying row sizes, allowing efficient access to elements using multi-dimensional indices.
+The `jagged_array` class provides wrapper for managing multi-dimensional arrays with varying row lengths (jagged arrays) on the GPU. It inherits from the base array type, which can be either `managed_array<T>` or `structure_of_arrays<Tuple<Ts...>>`, to utilize their memory management and range interfaces. The jagged array has additional offsets to handle varying row sizes, allowing efficient access to elements using multi-dimensional indices.
 
 Note that the only internal storage types currently supported are `managed_array` and `managed_structure_of_arrays`.
 
@@ -939,7 +1075,7 @@ __host__ __device__ decltype(auto) operator[](size_type i, size_type j) &&;     
 
 Inherited from the base array type (`managed_array` or `managed_structure_of_arrays`).
 
-#### Memory managements
+#### Memory management
 
 Inherited from the base array type (`managed_array` or `managed_structure_of_arrays`).
 
@@ -958,7 +1094,7 @@ views::grid_cluster_stride;     // [*]
 // [*] Currently available only with CUDA backends.
 ```
 
-They produces a view that consists of advancing the N-th element of the original range by a specified stride M. The pairs N and M correspond to the index of the thread/block/cluster within the block/cluster/grid and the number of threads/blocks/clusters, respectively.
+They produce views that enable advancing the N-th element of the original range by a specified stride M. The pairs N and M correspond to the index of the thread/block/cluster within the block/cluster/grid and the number of threads/blocks/clusters, respectively.
 
 #### `views::block_thread_stride`
 
@@ -1136,7 +1272,7 @@ GPU_CHECK_ERROR(gpu_ptr::api::gpuGetDevice(&device_id));
 
 **Device and host compilation macros:**
 
-The gpu-ptr library defines `GPU_DEVICE_COMPILE`, `GPU_OVERLOAD_DEVICE`, and `GPU_OVERLOAD_HOST` macros depending on host or device code compilation. The `GPU_DEVICE_COMPILE` macro is defined when compiling device code. The `GPU_OVERLOAD_DEVICE` and `GPU_OVERLOAD_HOST` macros handle the differences in behavior between CUDA and HIP for [overloading based on host and device code](https://llvm.org/docs/CompileCudaWithLLVM.html#overloading-based-on-host-and-device-attributes). The nvcc does not allow overloading based on `__host__` and `__device__` attributes with the same function signature, while hipcc allows it.
+gpu-ptr library defines `GPU_DEVICE_COMPILE`, `GPU_OVERLOAD_DEVICE`, and `GPU_OVERLOAD_HOST` macros depending on host or device code compilation. The `GPU_DEVICE_COMPILE` macro is defined when compiling device code. The `GPU_OVERLOAD_DEVICE` and `GPU_OVERLOAD_HOST` macros handle the differences in behavior between CUDA and HIP for [overloading based on host and device code](https://llvm.org/docs/CompileCudaWithLLVM.html#overloading-based-on-host-and-device-attributes). The nvcc does not allow overloading based on `__host__` and `__device__` attributes with the same function signature, while hipcc allows it.
 
 Example usage:
 
