@@ -1,0 +1,85 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ubuntu-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          [
+            { c: "gcc-13", cxx: "g++-13" },
+            { c: "gcc-14", cxx: "g++-14" },
+            { c: "clang-16", cxx: "clang++-16" },
+            { c: "clang-17", cxx: "clang++-17" },
+            { c: "clang-18", cxx: "clang++-18" },
+          ]
+        gpu:
+          [
+            { hip: "OFF", platform: "nvidia", version: "12.6.3" },
+            { hip: "OFF", platform: "nvidia", version: "12.8.1" },
+            { hip: "OFF", platform: "nvidia", version: "13.1.0" },
+            { hip: "ON", platform: "amd", version: "6.2.4" },
+            { hip: "ON", platform: "amd", version: "6.3.3" },
+            { hip: "ON", platform: "amd", version: "6.4.3" },
+            { hip: "ON", platform: "amd", version: "7.1.1" },
+          ]
+        exclude:
+          - compiler: { c: "gcc-14", cxx: "g++-14" }
+            gpu: { hip: "OFF", platform: "nvidia", version: "12.6.3" }
+    name: Ubuntu - ${{ matrix.compiler.cxx }} - ${{ matrix.gpu.platform == 'nvidia' && 'CUDA' || 'HIP' }} ${{ matrix.gpu.version }}
+    runs-on: ubuntu-24.04
+
+    env:
+      triplet: x64-linux
+      cuda_arch: "90"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install CUDA
+        if: ${{ matrix.gpu.hip == 'OFF' }}
+        uses: Jimver/cuda-toolkit@master
+        id: cuda-toolkit
+        with:
+          cuda: ${{ matrix.gpu.version }}
+          sub-packages: '["nvcc"]'
+          method: "network"
+
+      - name: Install ROCm
+        if: ${{ matrix.gpu.hip == 'ON' }}
+        uses: loostrum/rocm-installer@v0.2
+        with:
+          version: ${{ matrix.gpu.version }}
+
+      - name: Install compilers
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install ninja
+
+      - name: Install dependencies
+        run: CC=${{ matrix.compiler.c }} CXX=${{ matrix.compiler.cxx }} vcpkg install --triplet ${{ env.triplet }}
+
+      - name: Build and test
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          rm -rf ${{ github.workspace }}/build
+          cmake -B ${{ github.workspace }}/build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=${{ env.triplet }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} -DENABLE_HIP=${{ matrix.gpu.hip }} -DCMAKE_HIP_PLATFORM=${{ matrix.gpu.platform }} -DCMAKE_CUDA_ARCHITECTURES=${{ env.cuda_arch }} ${{ matrix.gpu.hip == 'ON' && '-DCMAKE_PREFIX_PATH=/opt/rocm' || '' }} -G "Ninja Multi-Config"
+          cmake --build ${{ github.workspace }}/build --config Debug --clean-first
+          # ctest --test-dir ${{ github.workspace }}/build --output-on-failure -C Debug
+          cmake --build ${{ github.workspace }}/build --config Release --clean-first
+          # ctest --test-dir ${{ github.workspace }}/build --output-on-failure -C Release
