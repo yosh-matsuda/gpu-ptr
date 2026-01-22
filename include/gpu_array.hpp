@@ -76,12 +76,12 @@ namespace gpu_array
 
 #if defined(GPU_ARRAY_DEBUG)
         inline std::size_t gpu_memory_usage = 0UL;
-#define INCR_GPU_MEORY_USAGE(x) (gpu_array::api::gpu_memory_usage += (x))
-#define DECR_GPU_MEORY_USAGE(x) (gpu_array::api::gpu_memory_usage -= (x))
+#define INCR_GPU_MEMORY_USAGE(x) (gpu_array::api::gpu_memory_usage += (x))
+#define DECR_GPU_MEMORY_USAGE(x) (gpu_array::api::gpu_memory_usage -= (x))
 #define MEMORY_USAGE_EQ(x) (gpu_array::api::gpu_memory_usage == (x))
 #else
-#define INCR_GPU_MEORY_USAGE(x) void(x)
-#define DECR_GPU_MEORY_USAGE(x) void(x)
+#define INCR_GPU_MEMORY_USAGE(x) void(x)
+#define DECR_GPU_MEMORY_USAGE(x) void(x)
 #define MEMORY_USAGE_EQ(x) (true)
 #endif
 
@@ -156,9 +156,9 @@ namespace gpu_array
                         }
 
                         base::tuple_for_each([](auto* ptr) { GPU_CHECK_ERROR(api::gpuFree(ptr)); });
-                        (DECR_GPU_MEORY_USAGE(sizeof(ValueTypes) * size_), ...);  // for debug
+                        (DECR_GPU_MEMORY_USAGE(sizeof(ValueTypes) * size_), ...);  // for debug
 
-#ifndef _CLANGD                                                                   // clangd crashes with this code
+#ifndef _CLANGD                                                                    // clangd crashes with this code
                         delete ref_count_;
 #endif
                     }
@@ -247,7 +247,7 @@ namespace gpu_array
                 }
 
                 // called from derived class constructor
-                (INCR_GPU_MEORY_USAGE(sizeof(ValueTypes) * size_), ...);  // for debug
+                (INCR_GPU_MEMORY_USAGE(sizeof(ValueTypes) * size_), ...);  // for debug
             }
 #ifndef GPU_DEVICE_COMPILE
             __host__ ~base() { free(); }
@@ -2873,6 +2873,6 @@ inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::jagged_array
 #endif
 
 #undef SIGSEGV_DEPRECATED
-#undef INCR_GPU_MEORY_USAGE
-#undef DECR_GPU_MEORY_USAGE
+#undef INCR_GPU_MEMORY_USAGE
+#undef DECR_GPU_MEMORY_USAGE
 #undef MEMORY_USAGE_EQ
