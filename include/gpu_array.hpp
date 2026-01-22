@@ -2857,6 +2857,8 @@ template <typename... Ts>
 inline constexpr bool std::ranges::enable_view<gpu_array::structure_of_arrays<Ts...>> = true;
 template <typename... Ts>
 inline constexpr bool std::ranges::enable_view<gpu_array::managed_structure_of_arrays<Ts...>> = true;
+template <typename... Ts>
+inline constexpr bool std::ranges::enable_view<gpu_array::jagged_array<Ts...>> = true;
 #if defined(GPU_DEVICE_COMPILE)
 template <typename... Ts>
 inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::array<Ts...>> = true;
@@ -2866,6 +2868,8 @@ template <typename... Ts>
 inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::structure_of_arrays<Ts...>> = true;
 template <typename... Ts>
 inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::managed_structure_of_arrays<Ts...>> = true;
+template <typename... Ts>
+inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::jagged_array<Ts...>> = true;
 #endif
 
 #undef SIGSEGV_DEPRECATED
