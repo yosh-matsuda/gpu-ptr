@@ -1,20 +1,20 @@
 cmake_minimum_required(VERSION 3.21)
 project(
-  gpu_ptr
-  VERSION 0.0.1
+  gpu_array
+  VERSION 0.3.0
   LANGUAGES CXX)
 
 # check if the project is top-level
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-  set(GPU_PTR_IS_TOPLEVEL_PROJECT ON)
+  set(GPU_ARRAY_IS_TOPLEVEL_PROJECT ON)
 else()
-  set(GPU_PTR_IS_TOPLEVEL_PROJECT OFF)
+  set(GPU_ARRAY_IS_TOPLEVEL_PROJECT OFF)
 endif()
 
 # options
 option(ENABLE_HIP "Enable HIP support" OFF)
-option(GPU_PTR_BUILD_TEST "Build ${PROJECT_NAME} tests"
-       ${GPU_PTR_IS_TOPLEVEL_PROJECT})
+option(GPU_ARRAY_BUILD_TEST "Build ${PROJECT_NAME} tests"
+       ${GPU_ARRAY_IS_TOPLEVEL_PROJECT})
 
 # library
 include(GNUInstallDirs)
@@ -30,7 +30,7 @@ target_include_directories(
 set_target_properties(${PROJECT_NAME} PROPERTIES VERSION ${PROJECT_VERSION})
 
 # install
-if(GPU_PTR_IS_TOPLEVEL_PROJECT)
+if(GPU_ARRAY_IS_TOPLEVEL_PROJECT)
   install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}_Targets)
 
   install(
@@ -59,7 +59,7 @@ if(GPU_PTR_IS_TOPLEVEL_PROJECT)
 endif()
 
 # test
-if(GPU_PTR_BUILD_TEST)
+if(GPU_ARRAY_BUILD_TEST)
   enable_testing()
   add_subdirectory(test)
 endif()

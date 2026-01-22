@@ -84,7 +84,8 @@ else()
 
   enable_language(CUDA)
   set(ADD_CXX_FLAGS
-      "${ADD_CXX_FLAGS} -Xptxas=-v -use_fast_math --expt-relaxed-constexpr")
+      "${ADD_CXX_FLAGS} -Xptxas=-v -use_fast_math --expt-relaxed-constexpr -lineinfo"
+  )
   set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} ${ADD_CXX_FLAGS}")
   set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} ${ADD_CXX_FLAGS}")
   set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} ${ADD_CXX_FLAGS}")

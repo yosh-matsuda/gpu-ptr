@@ -1,6 +1,6 @@
 /*===================================================*
-|  GPU smart pointer (gpu-smart-ptr) version v0.2.0  |
-|  https://github.com/yosh-matsuda/gpu-ptr           |
+|  GPU Array (gpu-array) version v0.3.0              |
+|  https://github.com/yosh-matsuda/gpu-array         |
 |                                                    |
 |  Copyright (c) 2026 Yoshiki Matsuda @yosh-matsuda  |
 |                                                    |
@@ -31,7 +31,7 @@
 #include <vector>
 #endif
 
-#if defined(GPU_PTR_DEBUG)
+#if defined(GPU_ARRAY_DEBUG)
 #include <nameof.hpp>
 #endif
 
@@ -48,7 +48,7 @@
 #define SIGSEGV_DEPRECATED [[deprecated("Cannot access GPU memory directly")]]
 #endif
 
-namespace gpu_ptr
+namespace gpu_array
 {
 #if defined(GPU_USE_32BIT_SIZE_TYPE_DEFAULT)
     // Use 32-bit size_type for reducing register usage on GPU
@@ -74,11 +74,11 @@ namespace gpu_ptr
     namespace detail
     {
 
-#if defined(GPU_PTR_DEBUG)
+#if defined(GPU_ARRAY_DEBUG)
         inline std::size_t gpu_memory_usage = 0UL;
-#define INCR_GPU_MEORY_USAGE(x) (gpu_ptr::api::gpu_memory_usage += (x))
-#define DECR_GPU_MEORY_USAGE(x) (gpu_ptr::api::gpu_memory_usage -= (x))
-#define MEMORY_USAGE_EQ(x) (gpu_ptr::api::gpu_memory_usage == (x))
+#define INCR_GPU_MEORY_USAGE(x) (gpu_array::api::gpu_memory_usage += (x))
+#define DECR_GPU_MEORY_USAGE(x) (gpu_array::api::gpu_memory_usage -= (x))
+#define MEMORY_USAGE_EQ(x) (gpu_array::api::gpu_memory_usage == (x))
 #else
 #define INCR_GPU_MEORY_USAGE(x) void(x)
 #define DECR_GPU_MEORY_USAGE(x) void(x)
@@ -141,7 +141,7 @@ namespace gpu_ptr
                 // delete objects
                 if (--*ref_count_ == 0)
                 {
-#if defined(GPU_PTR_DEBUG)
+#if defined(GPU_ARRAY_DEBUG)
                     std::cout << " gpuFree: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
                               << ", size: " << size_ << ", refcount: " << *ref_count_ << '\n';
 #endif
@@ -192,7 +192,7 @@ namespace gpu_ptr
                 if (ref_count_ != nullptr)
                 {
                     ++*ref_count_;
-#if defined(GPU_PTR_DEBUG)
+#if defined(GPU_ARRAY_DEBUG)
                     std::cout << " copied: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
                               << ", size: " << size_ << ", refcount: " << *ref_count_ << '\n';
 #endif
@@ -221,7 +221,7 @@ namespace gpu_ptr
                 if (ref_count_ != nullptr)
                 {
                     ++*ref_count_;
-#if defined(GPU_PTR_DEBUG)
+#if defined(GPU_ARRAY_DEBUG)
                     std::cout << " copied: " << ((std::string(NAMEOF_FULL_TYPE(ValueTypes)) + ' ') + ...)
                               << ", size: " << size_ << ", refcount: " << *ref_count_ << '\n';
 #endif
@@ -2565,7 +2565,7 @@ namespace gpu_ptr
             mem_advise(advise, gpuCpuDeviceId, recursive);
         }
 
-#if defined(GPU_PTR_DEBUG)
+#if defined(GPU_ARRAY_DEBUG)
         [[deprecated("for debug")]] [[nodiscard]] const auto& get_offsets() const noexcept { return offsets_; }
         [[deprecated("for debug")]] [[nodiscard]] auto get_sizes() const noexcept
         {
@@ -2846,26 +2846,26 @@ namespace gpu_ptr
 #endif
 #endif
     }  // namespace views
-}  // namespace gpu_ptr
+}  // namespace gpu_array
 
 // speciialization for std::ranges
 template <typename... Ts>
-inline constexpr bool std::ranges::enable_view<gpu_ptr::array<Ts...>> = true;
+inline constexpr bool std::ranges::enable_view<gpu_array::array<Ts...>> = true;
 template <typename... Ts>
-inline constexpr bool std::ranges::enable_view<gpu_ptr::managed_array<Ts...>> = true;
+inline constexpr bool std::ranges::enable_view<gpu_array::managed_array<Ts...>> = true;
 template <typename... Ts>
-inline constexpr bool std::ranges::enable_view<gpu_ptr::structure_of_arrays<Ts...>> = true;
+inline constexpr bool std::ranges::enable_view<gpu_array::structure_of_arrays<Ts...>> = true;
 template <typename... Ts>
-inline constexpr bool std::ranges::enable_view<gpu_ptr::managed_structure_of_arrays<Ts...>> = true;
+inline constexpr bool std::ranges::enable_view<gpu_array::managed_structure_of_arrays<Ts...>> = true;
 #if defined(GPU_DEVICE_COMPILE)
 template <typename... Ts>
-inline constexpr bool std::ranges::enable_borrowed_range<gpu_ptr::array<Ts...>> = true;
+inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::array<Ts...>> = true;
 template <typename... Ts>
-inline constexpr bool std::ranges::enable_borrowed_range<gpu_ptr::managed_array<Ts...>> = true;
+inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::managed_array<Ts...>> = true;
 template <typename... Ts>
-inline constexpr bool std::ranges::enable_borrowed_range<gpu_ptr::structure_of_arrays<Ts...>> = true;
+inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::structure_of_arrays<Ts...>> = true;
 template <typename... Ts>
-inline constexpr bool std::ranges::enable_borrowed_range<gpu_ptr::managed_structure_of_arrays<Ts...>> = true;
+inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::managed_structure_of_arrays<Ts...>> = true;
 #endif
 
 #undef SIGSEGV_DEPRECATED

@@ -1,10 +1,10 @@
-#include "gpu_ptr.hpp"
+#include "gpu_array.hpp"
 
 #include <gtest/gtest.h>
 #include <list>
 
 // NOLINTBEGIN
-using namespace gpu_ptr;
+using namespace gpu_array;
 
 // Example of custom tuple type derived from std::tuple
 // You may need to specialize std::common_type and std::basic_common_reference to satisfy range concepts

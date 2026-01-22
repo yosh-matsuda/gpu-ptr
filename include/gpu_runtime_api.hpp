@@ -1,6 +1,6 @@
 /*===================================================*
-|  GPU pointer wrapper (gpu-ptr) version v0.0.1      |
-|  https://github.com/yosh-matsuda/gpu-ptr           |
+|  GPU Array (gpu-array) version v0.3.0              |
+|  https://github.com/yosh-matsuda/gpu-array         |
 |                                                    |
 |  Copyright (c) 2026 Yoshiki Matsuda @yosh-matsuda  |
 |                                                    |
@@ -32,7 +32,7 @@
 #include <sstream>
 
 // NOLINTBEGIN
-namespace gpu_ptr::api
+namespace gpu_array::api
 {
 #ifdef ENABLE_HIP
 
@@ -218,13 +218,13 @@ namespace gpu_ptr::api
         return ::cudaPointerGetAttributes(attributes, ptr);
     }
 #endif
-}  // namespace gpu_ptr::api
+}  // namespace gpu_array::api
 
-namespace gpu_ptr::detail
+namespace gpu_array::detail
 {
     __host__ inline void check_gpu_error(const api::gpuError_t e)
     {
-        using namespace gpu_ptr::api;
+        using namespace gpu_array::api;
         if (e != gpuSuccess)
         {
             std::stringstream s;
@@ -234,7 +234,7 @@ namespace gpu_ptr::detail
     }
     __host__ inline void check_gpu_error(const api::gpuError_t e, const char* f, decltype(__LINE__) n)
     {
-        using namespace gpu_ptr::api;
+        using namespace gpu_array::api;
         if (e != gpuSuccess)
         {
             std::stringstream s;
@@ -243,12 +243,12 @@ namespace gpu_ptr::detail
             throw std::runtime_error{s.str()};
         }
     }
-}  // namespace gpu_ptr::detail
+}  // namespace gpu_array::detail
 
 #ifdef NDEBUG
-#define GPU_CHECK_ERROR(expr) (gpu_ptr::detail::check_gpu_error(expr))
+#define GPU_CHECK_ERROR(expr) (gpu_array::detail::check_gpu_error(expr))
 #else
-#define GPU_CHECK_ERROR(expr) (gpu_ptr::detail::check_gpu_error(expr, __FILE__, __LINE__))
+#define GPU_CHECK_ERROR(expr) (gpu_array::detail::check_gpu_error(expr, __FILE__, __LINE__))
 #endif
 
 // NOLINTEND
