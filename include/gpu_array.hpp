@@ -343,6 +343,23 @@ namespace gpu_array
             };
             constexpr explicit join_init_tag(tag) {}
         } join_init{join_init_tag::tag{}};
+
+        template <typename It, typename SizeType>
+        class subrange : public std::ranges::view_interface<subrange<It, SizeType>>
+        {
+            It begin_;
+            SizeType size_;
+
+            using size_type = SizeType;
+            using iterator_type = It;
+
+        public:
+            __host__ __device__ subrange(It begin, SizeType size) : begin_(begin), size_(size) {}
+            __host__ __device__ It begin() const noexcept { return begin_; }
+            __host__ __device__ It end() const noexcept { return begin_ + size_; }
+            __host__ __device__ SizeType size() const noexcept { return size_; }
+            __host__ __device__ bool empty() const noexcept { return size_ == 0; }
+        };
     }  // namespace detail
 
     using detail::gpu_array_ptr;
@@ -2493,14 +2510,12 @@ namespace gpu_array
         __host__ __device__ auto row(size_type i) noexcept
         {
             assert(i < num_rows());
-            return std::ranges::subrange<iterator_type, iterator_type, std::ranges::subrange_kind::sized>(
-                base::begin() + offsets_[i], base::begin() + offsets_[i + 1], offsets_[i + 1] - offsets_[i]);
+            return detail::subrange(begin(i), size(i));
         }
         __host__ __device__ auto row(size_type i) const noexcept
         {
             assert(i < num_rows());
-            return std::ranges::subrange<const_iterator_type, const_iterator_type, std::ranges::subrange_kind::sized>(
-                base::begin() + offsets_[i], base::begin() + offsets_[i + 1], offsets_[i + 1] - offsets_[i]);
+            return detail::subrange(begin(i), size(i));
         }
 
         __host__ __device__ auto num_rows() const noexcept { return offsets_.size() - 1; }
@@ -2603,11 +2618,11 @@ namespace gpu_array
         };
 
         template <std::ranges::random_access_range Range>
-        requires std::is_lvalue_reference_v<Range&&>
+        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
         class stride_sentinel;
 
         template <std::ranges::random_access_range Range>
-        requires std::is_lvalue_reference_v<Range&&>
+        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
         class stride_iterator_base
         {
             template <typename T>
@@ -2633,7 +2648,7 @@ namespace gpu_array
         };
 
         template <std::ranges::random_access_range Range>
-        requires std::is_lvalue_reference_v<Range&&>
+        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
         class stride_sentinel
         {
             template <typename T>
@@ -2798,23 +2813,27 @@ namespace gpu_array
         struct stride_adapter
         {
             template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
             [[nodiscard]] constexpr auto operator()(const Range& r) const noexcept
             {
                 return stride_view<StrideType, const Range&>(r);
             }
             template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
             [[nodiscard]] constexpr auto operator()(Range& r) const noexcept
             {
                 return stride_view<StrideType, Range&>(r);
             }
 
             template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
             [[nodiscard]] friend constexpr std::ranges::view auto operator|(const Range& range,
                                                                             const stride_adapter& self) noexcept
             {
                 return self(range);
             }
             template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
             [[nodiscard]] friend constexpr std::ranges::view auto operator|(Range& range,
                                                                             const stride_adapter& self) noexcept
             {
@@ -2871,6 +2890,8 @@ inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::managed_stru
 template <typename... Ts>
 inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::jagged_array<Ts...>> = true;
 #endif
+template <typename... Ts>
+inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::detail::subrange<Ts...>> = true;
 
 #undef SIGSEGV_DEPRECATED
 #undef INCR_GPU_MEMORY_USAGE

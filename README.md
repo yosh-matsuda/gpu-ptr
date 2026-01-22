@@ -1051,8 +1051,8 @@ Additional member functions:
 
 ```cpp
 // (1) Range interface for each row
-__host__ __device__ std::ranges::subrange row(size_type i) noexcept;
-__host__ __device__ std::ranges::subrange row(size_type i) const noexcept;
+__host__ __device__ detail::subrange row(size_type i) noexcept;
+__host__ __device__ detail::subrange row(size_type i) const noexcept;
 __host__ __device__ auto begin(size_type i) noexcept;
 __host__ __device__ auto begin(size_type i) const noexcept;
 __host__ __device__ auto end(size_type i) noexcept;
