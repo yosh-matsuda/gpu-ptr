@@ -2610,7 +2610,7 @@ namespace gpu_array
             BlockThread,
             GridThread,
             GridBlock,
-#if !defined(ENABLE_HIP)
+#if defined(_CG_HAS_CLUSTER_GROUP)
             ClusterThread,
             ClusterBlock,
             GridCluster
@@ -2700,6 +2700,8 @@ namespace gpu_array
                 {
                     return this_grid().block_rank();
                 }
+#endif
+#if defined(_CG_HAS_CLUSTER_GROUP)
                 else if constexpr (StrideType == Stride::ClusterThread)
                 {
                     return this_cluster().thread_rank();
@@ -2744,6 +2746,8 @@ namespace gpu_array
                 {
                     return this_grid().num_blocks();
                 }
+#endif
+#if defined(_CG_HAS_CLUSTER_GROUP)
                 else if constexpr (StrideType == Stride::ClusterThread)
                 {
                     return this_cluster().size();
@@ -2849,7 +2853,7 @@ namespace gpu_array
         __device__ static constexpr detail::stride_adapter<Stride::BlockThread> block_thread_stride;
         __device__ static constexpr detail::stride_adapter<Stride::GridThread> grid_thread_stride;
         __device__ static constexpr detail::stride_adapter<Stride::GridBlock> grid_block_stride;
-#if !defined(ENABLE_HIP)
+#if defined(_CG_HAS_CLUSTER_GROUP)
         __device__ static constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
         __device__ static constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
         __device__ static constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
@@ -2858,7 +2862,7 @@ namespace gpu_array
         inline constexpr detail::stride_adapter<Stride::BlockThread> block_thread_stride;
         inline constexpr detail::stride_adapter<Stride::GridThread> grid_thread_stride;
         inline constexpr detail::stride_adapter<Stride::GridBlock> grid_block_stride;
-#if !defined(ENABLE_HIP)
+#if defined(_CG_HAS_CLUSTER_GROUP)
         inline constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
         inline constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
         inline constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;

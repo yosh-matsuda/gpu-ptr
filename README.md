@@ -1085,13 +1085,13 @@ The following range adapter closure objects in the `views` namespace are provide
 
 ```cpp
 views::block_thread_stride;
-views::cluster_thread_stride;   // [*]
 views::grid_thread_stride;
+views::grid_block_stride;
+views::cluster_thread_stride;   // [*]
 views::cluster_block_stride;    // [*]
-views::grid_block_stride;       // [*]
 views::grid_cluster_stride;     // [*]
 
-// [*] Currently available only with CUDA backends.
+// [*] Available only on CUDA backend [CC 9.0](https://developer.nvidia.com/cuda/gpus) or above.
 ```
 
 They produce views that enable advancing the N-th element of the original range by a specified stride M. The pairs N and M correspond to the index of the thread/block/cluster within the block/cluster/grid and the number of threads/blocks/clusters, respectively.
