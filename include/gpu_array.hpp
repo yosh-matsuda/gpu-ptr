@@ -2842,6 +2842,21 @@ namespace gpu_array
         };
     }  // namespace detail
 
+    template <std::ranges::random_access_range Range>
+    using block_thread_stride_view = detail::stride_view<detail::Stride::BlockThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_thread_stride_view = detail::stride_view<detail::Stride::GridThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_block_stride_view = detail::stride_view<detail::Stride::GridBlock, Range>;
+#if !defined(ENABLE_HIP)
+    template <std::ranges::random_access_range Range>
+    using cluster_thread_stride_view = detail::stride_view<detail::Stride::ClusterThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using cluster_block_stride_view = detail::stride_view<detail::Stride::ClusterBlock, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_cluster_stride_view = detail::stride_view<detail::Stride::GridCluster, Range>;
+#endif
+
     namespace views
     {
         using detail::Stride;
