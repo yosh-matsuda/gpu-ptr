@@ -2069,4 +2069,49 @@ TEST(JaggedArray, MemoryManagement)
         jagged_arr.mem_advise_to_cpu(api::gpuMemoryAdvise::SetReadMostly);
     }
 }
+
+template <std::ranges::input_range T>
+requires std::ranges::input_range<std::ranges::range_value_t<T>>
+__global__ void kernel_stride(T array)
+{
+    for (auto& a : array | views::grid_block_stride)
+        for (auto& v : a | views::block_thread_stride) v = 1;
+}
+
+template <std::ranges::input_range T>
+requires std::ranges::input_range<std::ranges::range_value_t<T>>
+__global__ void kernel_stride2(T array)
+{
+    for (auto& a : views::grid_block_stride(array))
+        for (auto& v : views::block_thread_stride(a)) v = 2;
+}
+
+template <std::ranges::input_range T>
+requires std::ranges::input_range<std::ranges::range_value_t<T>>
+__global__ void kernel_stride3(T array)
+{
+    for (auto& a : grid_block_stride_view(array))
+        for (auto& v : block_thread_stride_view(a)) v = 3;
+}
+
+TEST(StrideView, HowToUse)
+{
+    auto vec_vec = std::vector(32, std::vector<int>(64, 0));
+    auto nested_array = managed_array(vec_vec);
+
+    kernel_stride<<<32, 64>>>(nested_array);
+    api::gpuDeviceSynchronize();
+    for (const auto& inner_array : nested_array)
+        for (const auto& v : inner_array) EXPECT_EQ(v, 1);
+
+    kernel_stride2<<<32, 64>>>(nested_array);
+    api::gpuDeviceSynchronize();
+    for (const auto& inner_array : nested_array)
+        for (const auto& v : inner_array) EXPECT_EQ(v, 2);
+
+    kernel_stride3<<<32, 64>>>(nested_array);
+    api::gpuDeviceSynchronize();
+    for (const auto& inner_array : nested_array)
+        for (const auto& v : inner_array) EXPECT_EQ(v, 3);
+}
 // NOLINTEND
