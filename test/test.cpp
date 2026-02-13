@@ -2121,5 +2121,31 @@ TEST(StrideView, AliasTemplate)
     for (const auto& inner_array : nested_array)
         for (const auto& v : inner_array) EXPECT_EQ(v, 3);
 }
+
+template <std::ranges::input_range T>
+requires std::ranges::input_range<std::ranges::range_value_t<T>>
+__global__ void kernel_enumerate(T array)
+{
+    for (auto&& [i, xs] : grid_block_enumerate_view(array))
+        for (auto&& [j, x] : block_thread_enumerate_view(xs)) x = i * 100 + j;
+}
+
+TEST(EnumerateView, HowToUse)
+{
+    auto vec_vec = std::vector(32, std::vector<int>(64, 0));
+    auto nested_array = managed_array(vec_vec);
+
+    kernel_enumerate<<<32, 64>>>(nested_array);
+    api::gpuDeviceSynchronize();
+    for (int i = 0; const auto& xs : nested_array)
+    {
+        for (int j = 0; const auto& x : xs)
+        {
+            EXPECT_EQ(x, i * 100 + j);
+            ++j;
+        }
+        ++i;
+    }
+}
 #endif
 // NOLINTEND

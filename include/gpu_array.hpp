@@ -2676,6 +2676,7 @@ namespace gpu_array
         {
             using base = stride_iterator_base<Range>;
 
+        public:
             __host__ __device__ static auto get_initial_index() noexcept
             {
 #if defined(GPU_DEVICE_COMPILE)
@@ -2770,7 +2771,6 @@ namespace gpu_array
 #endif
             }
 
-        public:
             using iterator_category = std::forward_iterator_tag;
             using value_type = std::ranges::range_value_t<Range>;
             using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
@@ -2831,6 +2831,103 @@ namespace gpu_array
                 return self(range);
             }
         };
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class enumerate_iterator
+        {
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = std::ranges::range_value_t<Range>;
+            using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
+
+            enumerate_iterator() = default;
+            __host__ __device__ explicit enumerate_iterator(Range&& r) noexcept
+                : pointer_(&r), index_(stride_iterator<StrideType, Range>::get_initial_index())
+            {
+            }
+            __host__ __device__ std::ranges::range_size_t<Range> index() const noexcept { return index_; }
+            __host__ __device__ std::pair<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
+            operator*() const noexcept
+            {
+                return {index_, (*pointer_)[index_]};
+            }
+            __host__ __device__ enumerate_iterator& operator++() noexcept
+            {
+                index_ += stride_iterator<StrideType, Range>::get_stride();
+                return *this;
+            }
+            __host__ __device__ enumerate_iterator operator++(int) noexcept
+            {
+                auto res = *this;
+                ++(*this);
+                return res;
+            }
+            __host__ __device__ bool operator==(const enumerate_iterator& it) const noexcept
+            {
+                return index_ == it.index_;
+            }
+
+        private:
+            std::remove_reference_t<Range>* pointer_ = nullptr;
+            std::ranges::range_size_t<Range> index_ = 0;
+        };
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
+        class enumerate_sentinel
+        {
+        public:
+            enumerate_sentinel() = default;
+            __host__ __device__ explicit enumerate_sentinel(Range&& r) noexcept : end_(r.size()) {}
+            __host__ __device__ friend bool operator==(const enumerate_iterator<StrideType, Range>& it,
+                                                       const enumerate_sentinel& se) noexcept
+            {
+                return it.index() >= se.end_;
+            }
+
+        private:
+            std::ranges::range_size_t<Range> end_ = 0;
+        };
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class enumerate_view : public std::ranges::view_interface<enumerate_view<StrideType, Range>>
+        {
+        public:
+            enumerate_view() = default;
+            __host__ __device__ explicit enumerate_view(Range&& r) noexcept : pointer_(&r) {}
+            [[nodiscard]] __host__ __device__ auto begin() const noexcept
+            {
+                return enumerate_iterator<StrideType, Range>(*pointer_);
+            }
+            [[nodiscard]] __host__ __device__ auto end() const noexcept
+            {
+                return enumerate_sentinel<StrideType, Range>(*pointer_);
+            }
+
+        private:
+            std::remove_reference_t<Range>* pointer_ = nullptr;
+        };
+
+        template <Stride StrideType>
+        struct enumerate_adapter
+        {
+            template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
+            [[nodiscard]] __host__ __device__ auto operator()(Range& r) const noexcept
+            {
+                return enumerate_view<StrideType, Range&>(r);
+            }
+
+            template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
+            [[nodiscard]] __host__ __device__ friend std::ranges::view auto operator|(
+                Range& range, const enumerate_adapter& self) noexcept
+            {
+                return self(range);
+            }
+        };
     }  // namespace detail
 
 #if !defined(ENABLE_HIP)
@@ -2849,6 +2946,20 @@ namespace gpu_array
     using cluster_block_stride_view = detail::stride_view<detail::Stride::ClusterBlock, Range>;
     template <std::ranges::random_access_range Range>
     using grid_cluster_stride_view = detail::stride_view<detail::Stride::GridCluster, Range>;
+
+    template <std::ranges::random_access_range Range>
+    using block_thread_enumerate_view = detail::enumerate_view<detail::Stride::BlockThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_thread_enumerate_view = detail::enumerate_view<detail::Stride::GridThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_block_enumerate_view = detail::enumerate_view<detail::Stride::GridBlock, Range>;
+
+    template <std::ranges::random_access_range Range>
+    using cluster_thread_enumerate_view = detail::enumerate_view<detail::Stride::ClusterThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using cluster_block_enumerate_view = detail::enumerate_view<detail::Stride::ClusterBlock, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_cluster_enumerate_view = detail::enumerate_view<detail::Stride::GridCluster, Range>;
 #endif
 
     namespace views
@@ -2871,6 +2982,26 @@ namespace gpu_array
         inline constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
         inline constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
         inline constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
+#endif
+#endif
+
+#ifdef GPU_CHECK_ERROR
+        __device__ static constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
+        __device__ static constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
+        __device__ static constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+        __device__ static constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
+        __device__ static constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
+        __device__ static constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
+#endif
+#else
+        inline constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
+        inline constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
+        inline constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+        inline constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
+        inline constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
+        inline constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
 #endif
 #endif
     }  // namespace views
