@@ -2984,6 +2984,26 @@ namespace gpu_array
         inline constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
 #endif
 #endif
+
+#ifdef GPU_CHECK_ERROR
+        __device__ static constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
+        __device__ static constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
+        __device__ static constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+        __device__ static constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
+        __device__ static constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
+        __device__ static constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
+#endif
+#else
+        inline constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
+        inline constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
+        inline constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+        inline constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
+        inline constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
+        inline constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
+#endif
+#endif
     }  // namespace views
 }  // namespace gpu_array
 
