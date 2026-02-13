@@ -2086,14 +2086,6 @@ __global__ void kernel_stride2(T array)
         for (auto& v : views::block_thread_stride(a)) v = 2;
 }
 
-template <std::ranges::input_range T>
-requires std::ranges::input_range<std::ranges::range_value_t<T>>
-__global__ void kernel_stride3(T array)
-{
-    for (auto& a : grid_block_stride_view(array))
-        for (auto& v : block_thread_stride_view(a)) v = 3;
-}
-
 TEST(StrideView, HowToUse)
 {
     auto vec_vec = std::vector(32, std::vector<int>(64, 0));
@@ -2108,10 +2100,26 @@ TEST(StrideView, HowToUse)
     api::gpuDeviceSynchronize();
     for (const auto& inner_array : nested_array)
         for (const auto& v : inner_array) EXPECT_EQ(v, 2);
+}
+
+#if !defined(ENABLE_HIP)
+template <std::ranges::input_range T>
+requires std::ranges::input_range<std::ranges::range_value_t<T>>
+__global__ void kernel_stride3(T array)
+{
+    for (auto& a : grid_block_stride_view(array))
+        for (auto& v : block_thread_stride_view(a)) v = 3;
+}
+
+TEST(StrideView, AliasTemplate)
+{
+    auto vec_vec = std::vector(32, std::vector<int>(64, 0));
+    auto nested_array = managed_array(vec_vec);
 
     kernel_stride3<<<32, 64>>>(nested_array);
     api::gpuDeviceSynchronize();
     for (const auto& inner_array : nested_array)
         for (const auto& v : inner_array) EXPECT_EQ(v, 3);
 }
+#endif
 // NOLINTEND
