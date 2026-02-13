@@ -2831,6 +2831,221 @@ namespace gpu_array
                 return self(range);
             }
         };
+
+        template <std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
+        class enumerate_sentinel;
+
+        template <std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
+        class enumerate_iterator_base
+        {
+            template <typename T>
+            __host__ __device__ friend bool operator==(const enumerate_iterator_base<T>& it,
+                                                       const enumerate_sentinel<T>& se) noexcept;
+
+        public:
+            enumerate_iterator_base() = default;
+            __host__ __device__ std::ranges::range_reference_t<Range> operator*() const noexcept
+            {
+                return (*pointer_)[index_];
+            }
+
+        protected:
+            __host__ __device__ explicit enumerate_iterator_base(Range&& r,
+                                                                 std::ranges::range_size_t<Range> index) noexcept
+                : pointer_(&r), index_(index)
+            {
+            }
+
+            std::remove_reference_t<Range>* pointer_ = nullptr;
+            std::ranges::range_size_t<Range> index_ = 0;
+        };
+
+        template <std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
+        class enumerate_sentinel
+        {
+            template <typename T>
+            __host__ __device__ friend bool operator==(const enumerate_iterator_base<T>& it,
+                                                       const enumerate_sentinel<T>& se) noexcept;
+
+        public:
+            enumerate_sentinel() = default;
+            __host__ __device__ explicit enumerate_sentinel(Range&& r) noexcept : end_(r.size()) {}
+
+        protected:
+            std::ranges::range_size_t<Range> end_ = 0;
+        };
+
+        template <typename T>
+        __host__ __device__ inline bool operator==(const enumerate_iterator_base<T>& it,
+                                                   const enumerate_sentinel<T>& se) noexcept
+        {
+            return it.index_ >= se.end_;
+        }
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class enumerate_iterator : public enumerate_iterator_base<Range>
+        {
+            using base = enumerate_iterator_base<Range>;
+
+            __host__ __device__ static auto get_initial_index() noexcept
+            {
+#if defined(GPU_DEVICE_COMPILE)
+                using namespace cooperative_groups;  // NOLINT
+                if constexpr (StrideType == Stride::BlockThread)
+                {
+                    return this_thread_block().thread_rank();
+                }
+                else if constexpr (StrideType == Stride::GridThread)
+                {
+                    return this_grid().thread_rank();
+                }
+#if defined(ENABLE_HIP)
+                else if constexpr (StrideType == Stride::GridBlock)
+                {
+                    return (static_cast<unsigned long long>(blockIdx.z) * gridDim.y * gridDim.x) +  // NOLINT
+                           (static_cast<unsigned long long>(blockIdx.y) * gridDim.x) +              // NOLINT
+                           static_cast<unsigned long long>(blockIdx.x);                             // NOLINT
+                }
+#else
+                else if constexpr (StrideType == Stride::GridBlock)
+                {
+                    return this_grid().block_rank();
+                }
+#endif
+#if defined(_CG_HAS_CLUSTER_GROUP)
+                else if constexpr (StrideType == Stride::ClusterThread)
+                {
+                    return this_cluster().thread_rank();
+                }
+                else if constexpr (StrideType == Stride::ClusterBlock)
+                {
+                    return this_cluster().block_rank();
+                }
+                else if constexpr (StrideType == Stride::GridCluster)
+                {
+                    return this_grid().cluster_rank();
+                }
+#endif
+                else
+                {
+                    static_assert([]() { return false; }(), "invalid StrideType");
+                }
+#else
+                return 0;
+#endif
+            }
+
+            __host__ __device__ static auto get_enumerate() noexcept
+            {
+#if defined(GPU_DEVICE_COMPILE)
+                using namespace cooperative_groups;  // NOLINT
+                if constexpr (StrideType == Stride::BlockThread)
+                {
+                    return this_thread_block().size();
+                }
+                else if constexpr (StrideType == Stride::GridThread)
+                {
+                    return this_grid().size();
+                }
+#if defined(ENABLE_HIP)
+                else if constexpr (StrideType == Stride::GridBlock)
+                {
+                    return static_cast<unsigned long long>(gridDim.x) * (gridDim.y * gridDim.z);  // NOLINT
+                }
+#else
+                else if constexpr (StrideType == Stride::GridBlock)
+                {
+                    return this_grid().num_blocks();
+                }
+#endif
+#if defined(_CG_HAS_CLUSTER_GROUP)
+                else if constexpr (StrideType == Stride::ClusterThread)
+                {
+                    return this_cluster().size();
+                }
+                else if constexpr (StrideType == Stride::ClusterBlock)
+                {
+                    return this_cluster().num_blocks();
+                }
+                else if constexpr (StrideType == Stride::GridCluster)
+                {
+                    return this_grid().num_clusters();
+                }
+#endif
+                else
+                {
+                    static_assert([]() { return false; }(), "invalid StrideType");
+                }
+#else
+                return 1;
+#endif
+            }
+
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = std::ranges::range_value_t<Range>;
+            using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
+
+            __host__ __device__ explicit enumerate_iterator(Range&& r) noexcept
+                : base(std::forward<Range>(r), get_initial_index())
+            {
+            }
+            __host__ __device__ enumerate_iterator& operator++() noexcept
+            {
+                base::index_ += get_enumerate();
+                return *this;
+            }
+            __host__ __device__ enumerate_iterator operator++(int) noexcept
+            {
+                auto res = *this;
+                ++(*this);
+                return res;
+            }
+            __host__ __device__ bool operator==(const enumerate_iterator& it) const noexcept
+            {
+                return base::index_ == it.index_;
+            }
+        };
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class enumerate_view : public std::ranges::view_interface<enumerate_view<StrideType, Range>>
+        {
+        public:
+            enumerate_view() = default;
+            __host__ __device__ explicit enumerate_view(Range&& r) noexcept : pointer_(&r) {}
+            [[nodiscard]] __host__ __device__ auto begin() const noexcept
+            {
+                return enumerate_iterator<StrideType, Range>(*pointer_);
+            }
+            [[nodiscard]] __host__ __device__ auto end() const noexcept { return enumerate_sentinel<Range>(*pointer_); }
+
+        private:
+            std::remove_reference_t<Range>* pointer_ = nullptr;
+        };
+
+        template <Stride StrideType>
+        struct enumerate_adapter
+        {
+            template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
+            [[nodiscard]] constexpr auto operator()(Range& r) const noexcept
+            {
+                return enumerate_view<StrideType, Range&>(r);
+            }
+
+            template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
+            [[nodiscard]] friend constexpr std::ranges::view auto operator|(Range& range,
+                                                                            const enumerate_adapter& self) noexcept
+            {
+                return self(range);
+            }
+        };
     }  // namespace detail
 
 #if !defined(ENABLE_HIP)
