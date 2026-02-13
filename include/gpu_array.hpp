@@ -2846,13 +2846,16 @@ namespace gpu_array
         };
     }  // namespace detail
 
+#if !defined(ENABLE_HIP)
+    // The following three alias templates are also disabled in HIP because HIP does not support alias template argument
+    // deduction.
     template <std::ranges::random_access_range Range>
     using block_thread_stride_view = detail::stride_view<detail::Stride::BlockThread, Range>;
     template <std::ranges::random_access_range Range>
     using grid_thread_stride_view = detail::stride_view<detail::Stride::GridThread, Range>;
     template <std::ranges::random_access_range Range>
     using grid_block_stride_view = detail::stride_view<detail::Stride::GridBlock, Range>;
-#if !defined(ENABLE_HIP)
+
     template <std::ranges::random_access_range Range>
     using cluster_thread_stride_view = detail::stride_view<detail::Stride::ClusterThread, Range>;
     template <std::ranges::random_access_range Range>
