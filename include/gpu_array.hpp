@@ -2818,24 +2818,11 @@ namespace gpu_array
         {
             template <std::ranges::random_access_range Range>
             requires std::ranges::sized_range<Range>
-            [[nodiscard]] constexpr auto operator()(const Range& r) const noexcept
-            {
-                return stride_view<StrideType, const Range&>(r);
-            }
-            template <std::ranges::random_access_range Range>
-            requires std::ranges::sized_range<Range>
             [[nodiscard]] constexpr auto operator()(Range& r) const noexcept
             {
                 return stride_view<StrideType, Range&>(r);
             }
 
-            template <std::ranges::random_access_range Range>
-            requires std::ranges::sized_range<Range>
-            [[nodiscard]] friend constexpr std::ranges::view auto operator|(const Range& range,
-                                                                            const stride_adapter& self) noexcept
-            {
-                return self(range);
-            }
             template <std::ranges::random_access_range Range>
             requires std::ranges::sized_range<Range>
             [[nodiscard]] friend constexpr std::ranges::view auto operator|(Range& range,
