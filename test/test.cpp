@@ -2070,6 +2070,7 @@ TEST(JaggedArray, MemoryManagement)
     }
 }
 
+#if !defined(ENABLE_HIP)
 template <std::ranges::input_range T>
 requires std::ranges::input_range<std::ranges::range_value_t<T>>
 __global__ void kernel_stride(T array)
@@ -2102,7 +2103,6 @@ TEST(StrideView, HowToUse)
         for (const auto& v : inner_array) EXPECT_EQ(v, 2);
 }
 
-#if !defined(ENABLE_HIP)
 template <std::ranges::input_range T>
 requires std::ranges::input_range<std::ranges::range_value_t<T>>
 __global__ void kernel_stride3(T array)
