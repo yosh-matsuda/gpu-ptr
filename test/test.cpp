@@ -2125,6 +2125,10 @@ TEST(StrideView, AliasTemplate)
         for (const auto& v : inner_array) EXPECT_EQ(v, 3);
 }
 
+static_assert(detail::RandomAccessRange<enumerate_view<managed_array<int>>>);
+static_assert(std::ranges::sized_range<enumerate_view<managed_array<int>>>);
+static_assert(std::ranges::view<enumerate_view<managed_array<int>>>);
+
 template <std::ranges::input_range T>
 requires std::ranges::input_range<std::ranges::range_value_t<T>>
 __global__ void kernel_enumerate(T array)

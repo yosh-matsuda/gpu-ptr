@@ -48,6 +48,25 @@
 #define SIGSEGV_DEPRECATED [[deprecated("Cannot access GPU memory directly")]]
 #endif
 
+#if !defined(__cpp_lib_tuple_like) || __cpp_lib_tuple_like < 202207L
+template <class T1, class T2, class U1, class U2, template <class> class TQual, template <class> class UQual>
+requires requires {
+    typename std::pair<std::common_reference_t<TQual<T1>, UQual<U1>>, std::common_reference_t<TQual<T2>, UQual<U2>>>;
+}
+struct std::basic_common_reference<std::pair<T1, T2>, std::pair<U1, U2>, TQual, UQual>
+{
+    using type =
+        std::pair<std::common_reference_t<TQual<T1>, UQual<U1>>, std::common_reference_t<TQual<T2>, UQual<U2>>>;
+};
+
+template <class T1, class T2, class U1, class U2>
+requires requires { typename std::pair<std::common_type_t<T1, U1>, std::common_type_t<T2, U2>>; }
+struct std::common_type<std::pair<T1, T2>, std::pair<U1, U2>>
+{
+    using type = std::pair<std::common_type_t<T1, U1>, std::common_type_t<T2, U2>>;
+};
+#endif
+
 namespace gpu_array
 {
 #if defined(GPU_USE_32BIT_SIZE_TYPE_DEFAULT)
@@ -2605,6 +2624,112 @@ namespace gpu_array
 
     namespace detail
     {
+        // WORKAROUND: Because std::common_reference_with in C++20 does not work correctly
+        template <class Range>
+        concept RandomAccessRange = true;
+
+        template <class Derived>
+        requires std::is_class_v<Derived> && std::same_as<Derived, std::remove_cv_t<Derived>>
+        class ViewInterface
+        {
+            __host__ __device__ Derived& derived() noexcept { return static_cast<Derived&>(*this); }
+
+            __host__ __device__ Derived const& derived() const noexcept { return static_cast<Derived const&>(*this); }
+
+            template <class V>
+            __host__ __device__ static auto to_unsigned(V v)
+            {
+                return static_cast<std::make_unsigned_t<V>>(v);
+            }
+
+        public:
+            template <class D2 = Derived>
+            [[nodiscard]] __host__ __device__ bool empty()
+            requires std::ranges::sized_range<D2> || RandomAccessRange<D2>
+            {
+                if constexpr (std::ranges::sized_range<D2>)
+                {
+                    return derived().size() == 0;
+                }
+                else
+                {
+                    return derived().begin() == derived().end();
+                }
+            }
+
+            template <class D2 = Derived>
+            [[nodiscard]] __host__ __device__ bool empty() const
+            requires std::ranges::sized_range<const D2> || RandomAccessRange<const D2>
+            {
+                if constexpr (std::ranges::sized_range<const D2>)
+                {
+                    return derived().size() == 0;
+                }
+                else
+                {
+                    return derived().begin() == derived().end();
+                }
+            }
+
+            template <class D2 = Derived>
+            __host__ __device__ explicit operator bool()
+            requires requires(D2& t) { std::ranges::empty(t); }
+            {
+                return !std::ranges::empty(derived());
+            }
+
+            template <class D2 = Derived>
+            __host__ __device__ explicit operator bool() const
+            requires requires(const D2& t) { std::ranges::empty(t); }
+            {
+                return !std::ranges::empty(derived());
+            }
+
+            template <class D2 = Derived>
+            [[nodiscard]] __host__ __device__ auto size()
+            requires RandomAccessRange<D2> &&
+                     std::sized_sentinel_for<std::ranges::sentinel_t<D2>, std::ranges::iterator_t<D2>>
+            {
+                return to_unsigned(derived().end() - derived().begin());
+            }
+
+            template <class D2 = Derived>
+            [[nodiscard]] __host__ __device__ auto size() const
+            requires RandomAccessRange<const D2> &&
+                     std::sized_sentinel_for<std::ranges::sentinel_t<const D2>, std::ranges::iterator_t<const D2>>
+            {
+                return to_unsigned(derived().end() - derived().begin());
+            }
+
+            template <class D2 = Derived>
+            [[nodiscard]] __host__ __device__ decltype(auto) front()
+            requires RandomAccessRange<D2>
+            {
+                return *derived().begin();
+            }
+
+            template <class D2 = Derived>
+            [[nodiscard]] __host__ __device__ decltype(auto) front() const
+            requires RandomAccessRange<const D2>
+            {
+                return *derived().begin();
+            }
+
+            template <class D2 = Derived>
+            [[nodiscard]] __host__ __device__ decltype(auto) operator[](std::ranges::range_difference_t<D2> index)
+            requires RandomAccessRange<D2>
+            {
+                return derived().begin()[index];
+            }
+
+            template <class D2 = const Derived>
+            [[nodiscard]] __host__ __device__ decltype(auto) operator[](std::ranges::range_difference_t<D2> index) const
+            requires RandomAccessRange<const D2>
+            {
+                return derived().begin()[index];
+            }
+        };
+
         enum class Stride : std::uint8_t
         {
             BlockThread,
@@ -2617,11 +2742,11 @@ namespace gpu_array
 #endif
         };
 
-        template <std::ranges::random_access_range Range>
+        template <RandomAccessRange Range>
         requires std::ranges::view<Range> && std::ranges::sized_range<Range>
         class stride_sentinel;
 
-        template <std::ranges::random_access_range Range>
+        template <RandomAccessRange Range>
         requires std::ranges::view<Range> && std::ranges::sized_range<Range>
         class stride_iterator_base
         {
@@ -2646,7 +2771,7 @@ namespace gpu_array
             std::ranges::range_size_t<Range> index_ = 0;
         };
 
-        template <std::ranges::random_access_range Range>
+        template <RandomAccessRange Range>
         requires std::ranges::view<Range> && std::ranges::sized_range<Range>
         class stride_sentinel
         {
@@ -2669,7 +2794,7 @@ namespace gpu_array
             return it.index_ >= se.end_;
         }
 
-        template <Stride StrideType, std::ranges::random_access_range Range>
+        template <Stride StrideType, RandomAccessRange Range>
         requires std::ranges::view<Range>
         class stride_iterator : public stride_iterator_base<Range>
         {
@@ -2793,9 +2918,9 @@ namespace gpu_array
             }
         };
 
-        template <Stride StrideType, std::ranges::random_access_range Range>
+        template <Stride StrideType, RandomAccessRange Range>
         requires std::ranges::view<Range>
-        class stride_view : public std::ranges::view_interface<stride_view<StrideType, Range>>
+        class stride_view : public ViewInterface<stride_view<StrideType, Range>>
         {
         public:
             stride_view() = default;
@@ -2823,17 +2948,17 @@ namespace gpu_array
         template <Stride StrideType>
         struct stride_adapter
         {
-            template <std::ranges::random_access_range Range>
+            template <RandomAccessRange Range>
             requires std::ranges::sized_range<Range>
-            [[nodiscard]] constexpr auto operator()(Range&& r) const noexcept
+            [[nodiscard]] __host__ __device__ auto operator()(Range&& r) const noexcept
             {
                 return stride_view<StrideType, std::remove_reference_t<Range>>(std::forward<Range>(r));
             }
 
-            template <std::ranges::random_access_range Range>
+            template <RandomAccessRange Range>
             requires std::ranges::sized_range<Range>
-            [[nodiscard]] friend constexpr std::ranges::view auto operator|(Range&& r,
-                                                                            const stride_adapter& self) noexcept
+            [[nodiscard]] __host__ __device__ friend std::ranges::view auto operator|(
+                Range&& r, const stride_adapter& self) noexcept
             {
                 return self(std::forward<Range>(r));
             }
@@ -2843,18 +2968,18 @@ namespace gpu_array
 #if !defined(ENABLE_HIP)
     // The following three alias templates are also disabled in HIP because HIP does not support alias template argument
     // deduction.
-    template <std::ranges::random_access_range Range>
+    template <detail::RandomAccessRange Range>
     using block_thread_stride_view = detail::stride_view<detail::Stride::BlockThread, Range>;
-    template <std::ranges::random_access_range Range>
+    template <detail::RandomAccessRange Range>
     using grid_thread_stride_view = detail::stride_view<detail::Stride::GridThread, Range>;
-    template <std::ranges::random_access_range Range>
+    template <detail::RandomAccessRange Range>
     using grid_block_stride_view = detail::stride_view<detail::Stride::GridBlock, Range>;
 
-    template <std::ranges::random_access_range Range>
+    template <detail::RandomAccessRange Range>
     using cluster_thread_stride_view = detail::stride_view<detail::Stride::ClusterThread, Range>;
-    template <std::ranges::random_access_range Range>
+    template <detail::RandomAccessRange Range>
     using cluster_block_stride_view = detail::stride_view<detail::Stride::ClusterBlock, Range>;
-    template <std::ranges::random_access_range Range>
+    template <detail::RandomAccessRange Range>
     using grid_cluster_stride_view = detail::stride_view<detail::Stride::GridCluster, Range>;
 #endif
 
@@ -2884,17 +3009,17 @@ namespace gpu_array
 
     namespace detail
     {
-        template <std::ranges::random_access_range Range>
-        requires std::is_lvalue_reference_v<Range&&>
+        template <RandomAccessRange Range>
+        requires std::ranges::view<Range>
         class enumerate_iterator
         {
         public:
             using iterator_category = std::random_access_iterator_tag;
-            using value_type = std::ranges::range_value_t<Range>;
+            using value_type = std::pair<std::ranges::range_size_t<Range>, std::ranges::range_value_t<Range>>;
             using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
 
             enumerate_iterator() = default;
-            __host__ __device__ explicit enumerate_iterator(Range&& r) noexcept : pointer_(&r), index_(0) {}
+            __host__ __device__ explicit enumerate_iterator(Range& r) noexcept : pointer_(&r), index_(0) {}
             __host__ __device__ std::ranges::range_size_t<Range> index() const noexcept { return index_; }
             __host__ __device__ std::pair<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
             operator*() const noexcept
@@ -2989,19 +3114,19 @@ namespace gpu_array
             }
 
         private:
-            std::remove_reference_t<Range>* pointer_ = nullptr;
+            Range* pointer_ = nullptr;
             std::ranges::range_size_t<Range> index_ = 0;
         };
 
-        template <std::ranges::random_access_range Range>
-        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
+        template <RandomAccessRange Range>
+        requires std::ranges::view<Range> && std::ranges::sized_range<Range>
         class enumerate_sentinel
         {
             using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
 
         public:
             enumerate_sentinel() = default;
-            __host__ __device__ explicit enumerate_sentinel(Range&& r) noexcept : end_(r.size()) {}
+            __host__ __device__ explicit enumerate_sentinel(Range& r) noexcept : end_(r.size()) {}
             __host__ __device__ friend bool operator==(const enumerate_iterator<Range>& it,
                                                        const enumerate_sentinel& se) noexcept
             {
@@ -3023,42 +3148,46 @@ namespace gpu_array
             std::ranges::range_size_t<Range> end_ = 0;
         };
 
-        template <std::ranges::random_access_range Range>
-        requires std::is_lvalue_reference_v<Range&&>
-        class enumerate_view : public std::ranges::view_interface<enumerate_view<Range>>
+        template <RandomAccessRange Range>
+        requires std::ranges::view<Range>
+        class enumerate_view : public ViewInterface<enumerate_view<Range>>
         {
         public:
             enumerate_view() = default;
-            __host__ __device__ explicit enumerate_view(Range&& r) noexcept : pointer_(&r) {}
+            __host__ __device__ explicit enumerate_view(Range r) noexcept : range_(r) {}
+            [[nodiscard]] __host__ __device__ auto begin() noexcept { return enumerate_iterator<Range>(range_); }
             [[nodiscard]] __host__ __device__ auto begin() const noexcept
+            requires std::is_const_v<Range>
             {
-                return enumerate_iterator<Range>(*pointer_);
+                return enumerate_iterator<Range>(range_);
             }
-            [[nodiscard]] __host__ __device__ auto end() const noexcept { return enumerate_sentinel<Range>(*pointer_); }
-            [[nodiscard]] __host__ __device__ auto size() const noexcept { return pointer_->size(); }
+            [[nodiscard]] __host__ __device__ auto end() noexcept { return enumerate_sentinel<Range>(range_); }
+            [[nodiscard]] __host__ __device__ auto end() const noexcept
+            requires std::is_const_v<Range>
+            {
+                return enumerate_sentinel<Range>(range_);
+            }
+            [[nodiscard]] __host__ __device__ auto size() const noexcept { return range_.size(); }
 
         private:
-            std::remove_reference_t<Range>* pointer_ = nullptr;
+            Range range_{};
         };
-
-        template <class Range>
-        enumerate_view(Range&) -> enumerate_view<Range&>;
 
         struct enumerate_adapter
         {
-            template <std::ranges::random_access_range Range>
+            template <RandomAccessRange Range>
             requires std::ranges::sized_range<Range>
-            [[nodiscard]] __host__ __device__ auto operator()(Range& r) const noexcept
+            [[nodiscard]] __host__ __device__ auto operator()(Range&& r) const noexcept
             {
-                return enumerate_view<Range&>(r);
+                return enumerate_view<std::remove_reference_t<Range>>(std::forward<Range>(r));
             }
 
-            template <std::ranges::random_access_range Range>
+            template <RandomAccessRange Range>
             requires std::ranges::sized_range<Range>
             [[nodiscard]] __host__ __device__ friend std::ranges::view auto operator|(
-                Range& range, const enumerate_adapter& self) noexcept
+                Range&& r, const enumerate_adapter& self) noexcept
             {
-                return self(range);
+                return self(std::forward<Range>(r));
             }
         };
     }  // namespace detail
@@ -3076,51 +3205,12 @@ namespace gpu_array
 #endif
     }  // namespace views
 
-    // #if !defined(ENABLE_HIP)
-    //     template <std::ranges::random_access_range Range>
-    //     using block_thread_enumerate_view = detail::enumerate_view<detail::Stride::BlockThread, Range>;
-    //     template <std::ranges::random_access_range Range>
-    //     using grid_thread_enumerate_view = detail::enumerate_view<detail::Stride::GridThread, Range>;
-    //     template <std::ranges::random_access_range Range>
-    //     using grid_block_enumerate_view = detail::enumerate_view<detail::Stride::GridBlock, Range>;
-
-    //     template <std::ranges::random_access_range Range>
-    //     using cluster_thread_enumerate_view = detail::enumerate_view<detail::Stride::ClusterThread, Range>;
-    //     template <std::ranges::random_access_range Range>
-    //     using cluster_block_enumerate_view = detail::enumerate_view<detail::Stride::ClusterBlock, Range>;
-    //     template <std::ranges::random_access_range Range>
-    //     using grid_cluster_enumerate_view = detail::enumerate_view<detail::Stride::GridCluster, Range>;
-    // #endif
-
-    //     namespace views
-    //     {
-    // #ifdef GPU_CHECK_ERROR
-    //         __device__ static constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
-    //         __device__ static constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
-    //         __device__ static constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
-    // #if defined(_CG_HAS_CLUSTER_GROUP)
-    //         __device__ static constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
-    //         __device__ static constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
-    //         __device__ static constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
-    // #endif
-    // #else
-    //         inline constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
-    //         inline constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
-    //         inline constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
-    // #if defined(_CG_HAS_CLUSTER_GROUP)
-    //         inline constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
-    //         inline constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
-    //         inline constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
-    // #endif
-    // #endif
-    //     }  // namespace views
-
     namespace detail
     {
         template <class... Ranges>
         using first_t = std::tuple_element_t<0, std::tuple<Ranges...>>;
 
-        template <Stride StrideType, std::ranges::random_access_range... Ranges>
+        template <Stride StrideType, RandomAccessRange... Ranges>
         requires (std::is_lvalue_reference_v<Ranges &&> && ...)
         class zip_iterator
         {
@@ -3164,7 +3254,7 @@ namespace gpu_array
             std::common_type_t<std::ranges::range_size_t<Ranges>...> index_ = 0;
         };
 
-        template <Stride StrideType, std::ranges::random_access_range... Ranges>
+        template <Stride StrideType, RandomAccessRange... Ranges>
         requires (std::is_lvalue_reference_v<Ranges &&> && ...) && (std::ranges::sized_range<Ranges> && ...)
         class zip_sentinel
         {
@@ -3181,9 +3271,9 @@ namespace gpu_array
             std::common_type_t<std::ranges::range_size_t<Ranges>...> end_ = 0;
         };
 
-        template <Stride StrideType, std::ranges::random_access_range... Ranges>
+        template <Stride StrideType, RandomAccessRange... Ranges>
         requires (std::is_lvalue_reference_v<Ranges &&> && ...)
-        class zip_view : public std::ranges::view_interface<zip_view<StrideType, Ranges...>>
+        class zip_view : public ViewInterface<zip_view<StrideType, Ranges...>>
         {
         public:
             zip_view() = default;
@@ -3206,7 +3296,7 @@ namespace gpu_array
         template <Stride StrideType>
         struct zip_adapter
         {
-            template <std::ranges::random_access_range... Ranges>
+            template <RandomAccessRange... Ranges>
             requires (std::ranges::sized_range<Ranges> && ...)
             [[nodiscard]] __host__ __device__ auto operator()(Ranges&... rs) const noexcept
             {
@@ -3284,9 +3374,9 @@ inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::jagged_array
 #endif
 template <typename... Ts>
 inline constexpr bool std::ranges::enable_borrowed_range<gpu_array::detail::subrange<Ts...>> = true;
-template <gpu_array::detail::Stride StrideType, std::ranges::random_access_range Range>
+template <gpu_array::detail::Stride StrideType, gpu_array::detail::RandomAccessRange Range>
 inline constexpr bool std::ranges::enable_view<gpu_array::detail::stride_view<StrideType, Range>> = true;
-template <std::ranges::random_access_range Range>
+template <gpu_array::detail::RandomAccessRange Range>
 inline constexpr bool std::ranges::enable_view<gpu_array::enumerate_view<Range>> = true;
 
 #undef SIGSEGV_DEPRECATED
