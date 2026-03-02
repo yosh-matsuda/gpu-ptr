@@ -3114,20 +3114,24 @@ namespace gpu_array
         };
     }  // namespace detail
 
-#if !defined(ENABLE_HIP)
-    template <std::ranges::random_access_range Ranges>
-    using block_thread_zip_view = detail::zip_view<detail::Stride::BlockThread, Ranges>;
-    template <std::ranges::random_access_range Ranges>
-    using grid_thread_zip_view = detail::zip_view<detail::Stride::GridThread, Ranges>;
-    template <std::ranges::random_access_range Ranges>
-    using grid_block_zip_view = detail::zip_view<detail::Stride::GridBlock, Ranges>;
-
-    template <std::ranges::random_access_range Ranges>
-    using cluster_thread_zip_view = detail::zip_view<detail::Stride::ClusterThread, Ranges>;
-    template <std::ranges::random_access_range Ranges>
-    using cluster_block_zip_view = detail::zip_view<detail::Stride::ClusterBlock, Ranges>;
-    template <std::ranges::random_access_range Ranges>
-    using grid_cluster_zip_view = detail::zip_view<detail::Stride::GridCluster, Ranges>;
+#ifdef GPU_CHECK_ERROR
+    __device__ static constexpr detail::zip_adapter<detail::Stride::BlockThread> block_thread_zip_view;
+    __device__ static constexpr detail::zip_adapter<detail::Stride::GridThread> grid_thread_zip_view;
+    __device__ static constexpr detail::zip_adapter<detail::Stride::GridBlock> grid_block_zip_view;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+    __device__ static constexpr detail::zip_adapter<detail::Stride::ClusterThread> cluster_thread_zip_view;
+    __device__ static constexpr detail::zip_adapter<detail::Stride::ClusterBlock> cluster_block_zip_view;
+    __device__ static constexpr detail::zip_adapter<detail::Stride::GridCluster> grid_cluster_zip_view;
+#endif
+#else
+    inline constexpr detail::zip_adapter<Stride::BlockThread> block_thread_zip_view;
+    inline constexpr detail::zip_adapter<Stride::GridThread> grid_thread_zip_view;
+    inline constexpr detail::zip_adapter<Stride::GridBlock> grid_block_zip_view;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+    inline constexpr detail::zip_adapter<Stride::ClusterThread> cluster_thread_zip_view;
+    inline constexpr detail::zip_adapter<Stride::ClusterBlock> cluster_block_zip_view;
+    inline constexpr detail::zip_adapter<Stride::GridCluster> grid_cluster_zip_view;
+#endif
 #endif
 
     namespace views
