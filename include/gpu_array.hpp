@@ -2831,7 +2831,52 @@ namespace gpu_array
                 return self(range);
             }
         };
+    }  // namespace detail
 
+#if !defined(ENABLE_HIP)
+    // The following three alias templates are also disabled in HIP because HIP does not support alias template argument
+    // deduction.
+    template <std::ranges::random_access_range Range>
+    using block_thread_stride_view = detail::stride_view<detail::Stride::BlockThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_thread_stride_view = detail::stride_view<detail::Stride::GridThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_block_stride_view = detail::stride_view<detail::Stride::GridBlock, Range>;
+
+    template <std::ranges::random_access_range Range>
+    using cluster_thread_stride_view = detail::stride_view<detail::Stride::ClusterThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using cluster_block_stride_view = detail::stride_view<detail::Stride::ClusterBlock, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_cluster_stride_view = detail::stride_view<detail::Stride::GridCluster, Range>;
+#endif
+
+    namespace views
+    {
+        using detail::Stride;
+#ifdef GPU_CHECK_ERROR
+        __device__ static constexpr detail::stride_adapter<Stride::BlockThread> block_thread_stride;
+        __device__ static constexpr detail::stride_adapter<Stride::GridThread> grid_thread_stride;
+        __device__ static constexpr detail::stride_adapter<Stride::GridBlock> grid_block_stride;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+        __device__ static constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
+        __device__ static constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
+        __device__ static constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
+#endif
+#else
+        inline constexpr detail::stride_adapter<Stride::BlockThread> block_thread_stride;
+        inline constexpr detail::stride_adapter<Stride::GridThread> grid_thread_stride;
+        inline constexpr detail::stride_adapter<Stride::GridBlock> grid_block_stride;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+        inline constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
+        inline constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
+        inline constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
+#endif
+#endif
+    }  // namespace views
+
+    namespace detail
+    {
         template <Stride StrideType, std::ranges::random_access_range Range>
         requires std::is_lvalue_reference_v<Range&&>
         class enumerate_iterator
@@ -2931,22 +2976,6 @@ namespace gpu_array
     }  // namespace detail
 
 #if !defined(ENABLE_HIP)
-    // The following three alias templates are also disabled in HIP because HIP does not support alias template argument
-    // deduction.
-    template <std::ranges::random_access_range Range>
-    using block_thread_stride_view = detail::stride_view<detail::Stride::BlockThread, Range>;
-    template <std::ranges::random_access_range Range>
-    using grid_thread_stride_view = detail::stride_view<detail::Stride::GridThread, Range>;
-    template <std::ranges::random_access_range Range>
-    using grid_block_stride_view = detail::stride_view<detail::Stride::GridBlock, Range>;
-
-    template <std::ranges::random_access_range Range>
-    using cluster_thread_stride_view = detail::stride_view<detail::Stride::ClusterThread, Range>;
-    template <std::ranges::random_access_range Range>
-    using cluster_block_stride_view = detail::stride_view<detail::Stride::ClusterBlock, Range>;
-    template <std::ranges::random_access_range Range>
-    using grid_cluster_stride_view = detail::stride_view<detail::Stride::GridCluster, Range>;
-
     template <std::ranges::random_access_range Range>
     using block_thread_enumerate_view = detail::enumerate_view<detail::Stride::BlockThread, Range>;
     template <std::ranges::random_access_range Range>
@@ -2964,27 +2993,6 @@ namespace gpu_array
 
     namespace views
     {
-        using detail::Stride;
-#ifdef GPU_CHECK_ERROR
-        __device__ static constexpr detail::stride_adapter<Stride::BlockThread> block_thread_stride;
-        __device__ static constexpr detail::stride_adapter<Stride::GridThread> grid_thread_stride;
-        __device__ static constexpr detail::stride_adapter<Stride::GridBlock> grid_block_stride;
-#if defined(_CG_HAS_CLUSTER_GROUP)
-        __device__ static constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
-        __device__ static constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
-        __device__ static constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
-#endif
-#else
-        inline constexpr detail::stride_adapter<Stride::BlockThread> block_thread_stride;
-        inline constexpr detail::stride_adapter<Stride::GridThread> grid_thread_stride;
-        inline constexpr detail::stride_adapter<Stride::GridBlock> grid_block_stride;
-#if defined(_CG_HAS_CLUSTER_GROUP)
-        inline constexpr detail::stride_adapter<Stride::ClusterThread> cluster_thread_stride;
-        inline constexpr detail::stride_adapter<Stride::ClusterBlock> cluster_block_stride;
-        inline constexpr detail::stride_adapter<Stride::GridCluster> grid_cluster_stride;
-#endif
-#endif
-
 #ifdef GPU_CHECK_ERROR
         __device__ static constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
         __device__ static constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
