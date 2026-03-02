@@ -2130,7 +2130,7 @@ __global__ void kernel_enumerate(T array)
         for (auto&& [j, x] : block_thread_enumerate_view(xs)) x = i * 100 + j;
 }
 
-TEST(EnumerateView, HowToUse)
+TEST(EnumerateView, Simple)
 {
     auto vec_vec = std::vector(32, std::vector<int>(64, 0));
     auto nested_array = managed_array(vec_vec);
@@ -2142,6 +2142,54 @@ TEST(EnumerateView, HowToUse)
         for (int j = 0; const auto& x : xs)
         {
             EXPECT_EQ(x, i * 100 + j);
+            ++j;
+        }
+        ++i;
+    }
+}
+
+template <std::ranges::input_range T>
+requires std::ranges::input_range<std::ranges::range_value_t<T>>
+__global__ void zip_test_init(T array, int coeff)
+{
+    for (auto&& [i, xs] : grid_block_enumerate_view(array))
+        for (auto&& [j, x] : block_thread_enumerate_view(xs)) x = (i * xs.size() + j) * coeff;
+}
+
+template <std::ranges::input_range T, std::ranges::input_range U>
+requires std::ranges::input_range<std::ranges::range_value_t<T>> &&
+         std::ranges::input_range<std::ranges::range_value_t<U>>
+__global__ void kernel_zip(T array1, const U array2)
+{
+    for (auto&& [xs, ys] : detail::zip_adapter<detail::Stride::GridBlock>{}(array1, array2))
+        for (auto&& [x, y] : detail::zip_adapter<detail::Stride::BlockThread>{}(xs, ys)) x = x + y;
+}
+
+TEST(ZipView, Simple)
+{
+    auto vec_vec = std::vector(10, std::vector<int>(20, 0));
+    auto array1 = managed_array(vec_vec);
+    auto array2 = managed_array(vec_vec);
+    zip_test_init<<<10, 20>>>(array1, 1);
+    zip_test_init<<<10, 20>>>(array2, 1000);
+    api::gpuDeviceSynchronize();
+    for (int i = 0; const auto& xs : array1)
+    {
+        for (int j = 0; const auto& x : xs)
+        {
+            EXPECT_EQ(x, i * 20 + j);
+            ++j;
+        }
+        ++i;
+    }
+
+    kernel_zip<<<10, 20>>>(array1, array2);
+    api::gpuDeviceSynchronize();
+    for (int i = 0; const auto& xs : array1)
+    {
+        for (int j = 0; const auto& x : xs)
+        {
+            EXPECT_EQ(x, (i * 20 + j) * 1001);
             ++j;
         }
         ++i;
