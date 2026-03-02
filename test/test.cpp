@@ -2155,21 +2155,25 @@ TEST(EnumerateView, Simple)
     }
 }
 
+static_assert(detail::RandomAccessRange<zip_view<managed_array<int>>>);
+static_assert(std::ranges::sized_range<zip_view<managed_array<int>>>);
+static_assert(std::ranges::view<zip_view<managed_array<int>>>);
+
 // template <std::ranges::input_range T>
 // requires std::ranges::input_range<std::ranges::range_value_t<T>>
 // __global__ void zip_test_init(T array, int coeff)
 // {
-//     for (auto&& [i, xs] : grid_block_enumerate_view(array))
-//         for (auto&& [j, x] : block_thread_enumerate_view(xs)) x = (i * xs.size() + j) * coeff;
+//     for (auto&& [i, xs] : enumerate_view(array) | views::grid_block_stride)
+//         for (auto&& [j, x] : enumerate_view(xs) | views::block_thread_stride) x = (i * xs.size() + j) * coeff;
 // }
 
 // template <std::ranges::input_range T, std::ranges::input_range U>
 // requires std::ranges::input_range<std::ranges::range_value_t<T>> &&
 //          std::ranges::input_range<std::ranges::range_value_t<U>>
-// __global__ void kernel_zip(T array1, const U array2)
+// __global__ void kernel_zip(T array1,  U array2)
 // {
-//     for (auto&& [xs, ys] : views::grid_block_zip(array1, array2))
-//         for (auto&& [x, y] : views::block_thread_zip(xs, ys)) x = x + y;
+//     for (auto&& [xs, ys] : views::zip(array1, array2) | views::grid_block_stride)
+//         for (auto&& [x, y] : views::zip(xs, ys) | views::block_thread_stride) x = x + y;
 // }
 
 // template <std::ranges::input_range T, std::ranges::input_range U>
