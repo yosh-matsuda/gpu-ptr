@@ -3013,6 +3013,142 @@ namespace gpu_array
 #endif
 #endif
     }  // namespace views
+
+    namespace detail
+    {
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class zip_iterator
+        {
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = std::ranges::range_value_t<Range>;
+            using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
+
+            zip_iterator() = default;
+            __host__ __device__ explicit zip_iterator(Range&& r) noexcept
+                : pointer_(&r), index_(stride_iterator<StrideType, Range>::get_initial_index())
+            {
+            }
+            __host__ __device__ std::ranges::range_size_t<Range> index() const noexcept { return index_; }
+            __host__ __device__ std::pair<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
+            operator*() const noexcept
+            {
+                return {index_, (*pointer_)[index_]};
+            }
+            __host__ __device__ zip_iterator& operator++() noexcept
+            {
+                index_ += stride_iterator<StrideType, Range>::get_stride();
+                return *this;
+            }
+            __host__ __device__ zip_iterator operator++(int) noexcept
+            {
+                auto res = *this;
+                ++(*this);
+                return res;
+            }
+            __host__ __device__ bool operator==(const zip_iterator& it) const noexcept { return index_ == it.index_; }
+
+        private:
+            std::remove_reference_t<Range>* pointer_ = nullptr;
+            std::ranges::range_size_t<Range> index_ = 0;
+        };
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
+        class zip_sentinel
+        {
+        public:
+            zip_sentinel() = default;
+            __host__ __device__ explicit zip_sentinel(Range&& r) noexcept : end_(r.size()) {}
+            __host__ __device__ friend bool operator==(const zip_iterator<StrideType, Range>& it,
+                                                       const zip_sentinel& se) noexcept
+            {
+                return it.index() >= se.end_;
+            }
+
+        private:
+            std::ranges::range_size_t<Range> end_ = 0;
+        };
+
+        template <Stride StrideType, std::ranges::random_access_range Range>
+        requires std::is_lvalue_reference_v<Range&&>
+        class zip_view : public std::ranges::view_interface<zip_view<StrideType, Range>>
+        {
+        public:
+            zip_view() = default;
+            __host__ __device__ explicit zip_view(Range&& r) noexcept : pointer_(&r) {}
+            [[nodiscard]] __host__ __device__ auto begin() const noexcept
+            {
+                return zip_iterator<StrideType, Range>(*pointer_);
+            }
+            [[nodiscard]] __host__ __device__ auto end() const noexcept
+            {
+                return zip_sentinel<StrideType, Range>(*pointer_);
+            }
+
+        private:
+            std::remove_reference_t<Range>* pointer_ = nullptr;
+        };
+
+        template <Stride StrideType>
+        struct zip_adapter
+        {
+            template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
+            [[nodiscard]] __host__ __device__ auto operator()(Range& r) const noexcept
+            {
+                return zip_view<StrideType, Range&>(r);
+            }
+
+            template <std::ranges::random_access_range Range>
+            requires std::ranges::sized_range<Range>
+            [[nodiscard]] __host__ __device__ friend std::ranges::view auto operator|(Range& range,
+                                                                                      const zip_adapter& self) noexcept
+            {
+                return self(range);
+            }
+        };
+    }  // namespace detail
+
+#if !defined(ENABLE_HIP)
+    template <std::ranges::random_access_range Range>
+    using block_thread_zip_view = detail::zip_view<detail::Stride::BlockThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_thread_zip_view = detail::zip_view<detail::Stride::GridThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_block_zip_view = detail::zip_view<detail::Stride::GridBlock, Range>;
+
+    template <std::ranges::random_access_range Range>
+    using cluster_thread_zip_view = detail::zip_view<detail::Stride::ClusterThread, Range>;
+    template <std::ranges::random_access_range Range>
+    using cluster_block_zip_view = detail::zip_view<detail::Stride::ClusterBlock, Range>;
+    template <std::ranges::random_access_range Range>
+    using grid_cluster_zip_view = detail::zip_view<detail::Stride::GridCluster, Range>;
+#endif
+
+    namespace views
+    {
+#ifdef GPU_CHECK_ERROR
+        __device__ static constexpr detail::zip_adapter<Stride::BlockThread> block_thread_zip;
+        __device__ static constexpr detail::zip_adapter<Stride::GridThread> grid_thread_zip;
+        __device__ static constexpr detail::zip_adapter<Stride::GridBlock> grid_block_zip;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+        __device__ static constexpr detail::zip_adapter<Stride::ClusterThread> cluster_thread_zip;
+        __device__ static constexpr detail::zip_adapter<Stride::ClusterBlock> cluster_block_zip;
+        __device__ static constexpr detail::zip_adapter<Stride::GridCluster> grid_cluster_zip;
+#endif
+#else
+        inline constexpr detail::zip_adapter<Stride::BlockThread> block_thread_zip;
+        inline constexpr detail::zip_adapter<Stride::GridThread> grid_thread_zip;
+        inline constexpr detail::zip_adapter<Stride::GridBlock> grid_block_zip;
+#if defined(_CG_HAS_CLUSTER_GROUP)
+        inline constexpr detail::zip_adapter<Stride::ClusterThread> cluster_thread_zip;
+        inline constexpr detail::zip_adapter<Stride::ClusterBlock> cluster_block_zip;
+        inline constexpr detail::zip_adapter<Stride::GridCluster> grid_cluster_zip;
+#endif
+#endif
+    }  // namespace views
 }  // namespace gpu_array
 
 // speciialization for std::ranges
