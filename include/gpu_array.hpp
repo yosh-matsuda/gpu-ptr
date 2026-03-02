@@ -2878,20 +2878,17 @@ namespace gpu_array
 
     namespace detail
     {
-        template <Stride StrideType, std::ranges::random_access_range Range>
+        template <std::ranges::random_access_range Range>
         requires std::is_lvalue_reference_v<Range&&>
         class enumerate_iterator
         {
         public:
-            using iterator_category = std::forward_iterator_tag;
+            using iterator_category = std::random_access_iterator_tag;
             using value_type = std::ranges::range_value_t<Range>;
             using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
 
             enumerate_iterator() = default;
-            __host__ __device__ explicit enumerate_iterator(Range&& r) noexcept
-                : pointer_(&r), index_(stride_iterator<StrideType, Range>::get_initial_index())
-            {
-            }
+            __host__ __device__ explicit enumerate_iterator(Range&& r) noexcept : pointer_(&r), index_(0) {}
             __host__ __device__ std::ranges::range_size_t<Range> index() const noexcept { return index_; }
             __host__ __device__ std::pair<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
             operator*() const noexcept
@@ -2900,7 +2897,7 @@ namespace gpu_array
             }
             __host__ __device__ enumerate_iterator& operator++() noexcept
             {
-                index_ += stride_iterator<StrideType, Range>::get_stride();
+                ++index_;
                 return *this;
             }
             __host__ __device__ enumerate_iterator operator++(int) noexcept
@@ -2909,9 +2906,80 @@ namespace gpu_array
                 ++(*this);
                 return res;
             }
-            __host__ __device__ bool operator==(const enumerate_iterator& it) const noexcept
+            __host__ __device__ enumerate_iterator& operator--() noexcept
+            {
+                --index_;
+                return *this;
+            }
+            __host__ __device__ enumerate_iterator operator--(int) noexcept
+            {
+                auto res = *this;
+                --(*this);
+                return res;
+            }
+            __host__ __device__ enumerate_iterator& operator+=(difference_type n)
+            {
+                index_ += n;
+                return *this;
+            }
+            __host__ __device__ enumerate_iterator& operator-=(difference_type n)
+            {
+                index_ -= n;
+                return *this;
+            }
+            __host__ __device__ std::pair<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
+            operator[](difference_type n) const
+            {
+                return *(*this + n);
+            }
+
+            __host__ __device__ bool operator==(const enumerate_iterator& it) const& noexcept
             {
                 return index_ == it.index_;
+            }
+            __host__ __device__ bool operator<(const enumerate_iterator& it) const& noexcept
+            {
+                return index_ < it.index_;
+            }
+            __host__ __device__ bool operator>(const enumerate_iterator& it) const& noexcept
+            {
+                return index_ > it.index_;
+            }
+            __host__ __device__ bool operator<=(const enumerate_iterator& it) const& noexcept
+            {
+                return index_ <= it.index_;
+            }
+            __host__ __device__ bool operator>=(const enumerate_iterator& it) const& noexcept
+            {
+                return index_ >= it.index_;
+            }
+
+            __host__ __device__ friend enumerate_iterator operator+(enumerate_iterator x, difference_type n)
+            {
+                x += n;
+                return x;
+            }
+            __host__ __device__ friend enumerate_iterator operator+(difference_type n, enumerate_iterator x)
+            {
+                x += n;
+                return x;
+            }
+            __host__ __device__ friend enumerate_iterator operator-(enumerate_iterator x, difference_type n)
+            {
+                x -= n;
+                return x;
+            }
+            __host__ __device__ friend difference_type operator-(const enumerate_iterator& x,
+                                                                 const enumerate_iterator& y)
+            {
+                return x.index() - y.index();
+            }
+
+            __host__ __device__ friend std::pair<std::ranges::range_size_t<Range>,
+                                                 std::ranges::range_rvalue_reference_t<Range>>
+            iter_move(const enumerate_iterator& x)
+            {
+                return {x.index(), std::move(x->second)};
             }
 
         private:
@@ -2919,51 +2987,64 @@ namespace gpu_array
             std::ranges::range_size_t<Range> index_ = 0;
         };
 
-        template <Stride StrideType, std::ranges::random_access_range Range>
+        template <std::ranges::random_access_range Range>
         requires std::is_lvalue_reference_v<Range&&> && std::ranges::sized_range<Range>
         class enumerate_sentinel
         {
+            using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
+
         public:
             enumerate_sentinel() = default;
             __host__ __device__ explicit enumerate_sentinel(Range&& r) noexcept : end_(r.size()) {}
-            __host__ __device__ friend bool operator==(const enumerate_iterator<StrideType, Range>& it,
+            __host__ __device__ friend bool operator==(const enumerate_iterator<Range>& it,
                                                        const enumerate_sentinel& se) noexcept
             {
                 return it.index() >= se.end_;
+            }
+
+            __host__ __device__ friend difference_type operator-(const enumerate_iterator<Range>& it,
+                                                                 const enumerate_sentinel& se) noexcept
+            {
+                return it.index() - se.end_;
+            }
+            __host__ __device__ friend difference_type operator-(const enumerate_sentinel& se,
+                                                                 const enumerate_iterator<Range>& it) noexcept
+            {
+                return se.end_ - it.index();
             }
 
         private:
             std::ranges::range_size_t<Range> end_ = 0;
         };
 
-        template <Stride StrideType, std::ranges::random_access_range Range>
+        template <std::ranges::random_access_range Range>
         requires std::is_lvalue_reference_v<Range&&>
-        class enumerate_view : public std::ranges::view_interface<enumerate_view<StrideType, Range>>
+        class enumerate_view : public std::ranges::view_interface<enumerate_view<Range>>
         {
         public:
             enumerate_view() = default;
             __host__ __device__ explicit enumerate_view(Range&& r) noexcept : pointer_(&r) {}
             [[nodiscard]] __host__ __device__ auto begin() const noexcept
             {
-                return enumerate_iterator<StrideType, Range>(*pointer_);
+                return enumerate_iterator<Range>(*pointer_);
             }
-            [[nodiscard]] __host__ __device__ auto end() const noexcept
-            {
-                return enumerate_sentinel<StrideType, Range>(*pointer_);
-            }
+            [[nodiscard]] __host__ __device__ auto end() const noexcept { return enumerate_sentinel<Range>(*pointer_); }
+            [[nodiscard]] __host__ __device__ auto size() const noexcept { return pointer_->size(); }
 
         private:
             std::remove_reference_t<Range>* pointer_ = nullptr;
         };
 
-        template <Stride StrideType>
+        template <class Range>
+        enumerate_view(Range&) -> enumerate_view<Range&>;
+
         struct enumerate_adapter
         {
             template <std::ranges::random_access_range Range>
             requires std::ranges::sized_range<Range>
             [[nodiscard]] __host__ __device__ auto operator()(Range& r) const noexcept
             {
-                return enumerate_view<StrideType, Range&>(r);
+                return enumerate_view<Range&>(r);
             }
 
             template <std::ranges::random_access_range Range>
@@ -2977,43 +3058,56 @@ namespace gpu_array
     }  // namespace detail
 
 #if !defined(ENABLE_HIP)
-    template <std::ranges::random_access_range Range>
-    using block_thread_enumerate_view = detail::enumerate_view<detail::Stride::BlockThread, Range>;
-    template <std::ranges::random_access_range Range>
-    using grid_thread_enumerate_view = detail::enumerate_view<detail::Stride::GridThread, Range>;
-    template <std::ranges::random_access_range Range>
-    using grid_block_enumerate_view = detail::enumerate_view<detail::Stride::GridBlock, Range>;
-
-    template <std::ranges::random_access_range Range>
-    using cluster_thread_enumerate_view = detail::enumerate_view<detail::Stride::ClusterThread, Range>;
-    template <std::ranges::random_access_range Range>
-    using cluster_block_enumerate_view = detail::enumerate_view<detail::Stride::ClusterBlock, Range>;
-    template <std::ranges::random_access_range Range>
-    using grid_cluster_enumerate_view = detail::enumerate_view<detail::Stride::GridCluster, Range>;
+    using detail::enumerate_view;
 #endif
 
     namespace views
     {
 #ifdef GPU_CHECK_ERROR
-        __device__ static constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
-        __device__ static constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
-        __device__ static constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
-#if defined(_CG_HAS_CLUSTER_GROUP)
-        __device__ static constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
-        __device__ static constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
-        __device__ static constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
-#endif
+        __device__ static constexpr detail::enumerate_adapter enumerate;
 #else
-        inline constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
-        inline constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
-        inline constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
-#if defined(_CG_HAS_CLUSTER_GROUP)
-        inline constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
-        inline constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
-        inline constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
-#endif
+        inline constexpr detail::enumerate_adapter enumerate;
 #endif
     }  // namespace views
+
+    // #if !defined(ENABLE_HIP)
+    //     template <std::ranges::random_access_range Range>
+    //     using block_thread_enumerate_view = detail::enumerate_view<detail::Stride::BlockThread, Range>;
+    //     template <std::ranges::random_access_range Range>
+    //     using grid_thread_enumerate_view = detail::enumerate_view<detail::Stride::GridThread, Range>;
+    //     template <std::ranges::random_access_range Range>
+    //     using grid_block_enumerate_view = detail::enumerate_view<detail::Stride::GridBlock, Range>;
+
+    //     template <std::ranges::random_access_range Range>
+    //     using cluster_thread_enumerate_view = detail::enumerate_view<detail::Stride::ClusterThread, Range>;
+    //     template <std::ranges::random_access_range Range>
+    //     using cluster_block_enumerate_view = detail::enumerate_view<detail::Stride::ClusterBlock, Range>;
+    //     template <std::ranges::random_access_range Range>
+    //     using grid_cluster_enumerate_view = detail::enumerate_view<detail::Stride::GridCluster, Range>;
+    // #endif
+
+    //     namespace views
+    //     {
+    // #ifdef GPU_CHECK_ERROR
+    //         __device__ static constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
+    //         __device__ static constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
+    //         __device__ static constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
+    // #if defined(_CG_HAS_CLUSTER_GROUP)
+    //         __device__ static constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
+    //         __device__ static constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
+    //         __device__ static constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
+    // #endif
+    // #else
+    //         inline constexpr detail::enumerate_adapter<Stride::BlockThread> block_thread_enumerate;
+    //         inline constexpr detail::enumerate_adapter<Stride::GridThread> grid_thread_enumerate;
+    //         inline constexpr detail::enumerate_adapter<Stride::GridBlock> grid_block_enumerate;
+    // #if defined(_CG_HAS_CLUSTER_GROUP)
+    //         inline constexpr detail::enumerate_adapter<Stride::ClusterThread> cluster_thread_enumerate;
+    //         inline constexpr detail::enumerate_adapter<Stride::ClusterBlock> cluster_block_enumerate;
+    //         inline constexpr detail::enumerate_adapter<Stride::GridCluster> grid_cluster_enumerate;
+    // #endif
+    // #endif
+    //     }  // namespace views
 
     namespace detail
     {
