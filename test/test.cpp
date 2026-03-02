@@ -2071,6 +2071,8 @@ TEST(JaggedArray, MemoryManagement)
 }
 
 #if !defined(ENABLE_HIP)
+static_assert(std::ranges::forward_range<detail::stride_view<detail::Stride::GridBlock, managed_array<int>&>>);
+
 template <std::ranges::input_range T>
 requires std::ranges::input_range<std::ranges::range_value_t<T>>
 __global__ void kernel_stride(T array)

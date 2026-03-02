@@ -2775,6 +2775,7 @@ namespace gpu_array
             using value_type = std::ranges::range_value_t<Range>;
             using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
 
+            stride_iterator() = default;
             __host__ __device__ explicit stride_iterator(Range&& r) noexcept
                 : base(std::forward<Range>(r), get_initial_index())
             {
