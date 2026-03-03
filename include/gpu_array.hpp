@@ -73,7 +73,7 @@ namespace gpu_array::detail
     template <class... Ts>
     struct tuple
     {
-        __host__ __device__ tuple()
+        tuple()
         requires (std::default_initializable<Ts> && ...)
         = default;
         __host__ __device__ tuple(Ts... ts) : base_{std::forward<Ts>(ts)...} {}
@@ -125,24 +125,19 @@ template <std::size_t I, class... Ts>
 struct std::tuple_element<I, gpu_array::detail::tuple<Ts...>> : std::tuple_element<I, std::tuple<Ts...>>
 {
 };
-#if !defined(__cpp_lib_tuple_like) || __cpp_lib_tuple_like < 202207L
-template <class T1, class T2, class U1, class U2, template <class> class TQual, template <class> class UQual>
-requires requires {
-    typename std::pair<std::common_reference_t<TQual<T1>, UQual<U1>>, std::common_reference_t<TQual<T2>, UQual<U2>>>;
-}
-struct std::basic_common_reference<std::pair<T1, T2>, std::pair<U1, U2>, TQual, UQual>
+template <class... TTypes, class... UTypes>
+requires requires { typename gpu_array::detail::tuple<std::common_type_t<TTypes, UTypes>...>; }
+struct std::common_type<gpu_array::detail::tuple<TTypes...>, gpu_array::detail::tuple<UTypes...>>
 {
-    using type =
-        std::pair<std::common_reference_t<TQual<T1>, UQual<U1>>, std::common_reference_t<TQual<T2>, UQual<U2>>>;
+    using type = gpu_array::detail::tuple<std::common_type_t<TTypes, UTypes>...>;
 };
-
-template <class T1, class T2, class U1, class U2>
-requires requires { typename std::pair<std::common_type_t<T1, U1>, std::common_type_t<T2, U2>>; }
-struct std::common_type<std::pair<T1, T2>, std::pair<U1, U2>>
+template <class... TTypes, class... UTypes, template <class> class TQual, template <class> class UQual>
+requires requires { typename gpu_array::detail::tuple<std::common_reference_t<TQual<TTypes>, UQual<UTypes>>...>; }
+struct std::basic_common_reference<gpu_array::detail::tuple<TTypes...>, gpu_array::detail::tuple<UTypes...>, TQual,
+                                   UQual>
 {
-    using type = std::pair<std::common_type_t<T1, U1>, std::common_type_t<T2, U2>>;
+    using type = gpu_array::detail::tuple<std::common_reference_t<TQual<TTypes>, UQual<UTypes>>...>;
 };
-#endif
 
 namespace gpu_array
 {
@@ -3094,13 +3089,13 @@ namespace gpu_array
         {
         public:
             using iterator_category = std::random_access_iterator_tag;
-            using value_type = std::pair<std::ranges::range_size_t<Range>, std::ranges::range_value_t<Range>>;
+            using value_type = detail::tuple<std::ranges::range_size_t<Range>, std::ranges::range_value_t<Range>>;
             using difference_type = std::make_signed_t<std::ranges::range_size_t<Range>>;
 
             enumerate_iterator() = default;
             __host__ __device__ explicit enumerate_iterator(Range& r) noexcept : pointer_(&r), index_(0) {}
             __host__ __device__ std::ranges::range_size_t<Range> index() const noexcept { return index_; }
-            __host__ __device__ std::pair<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
+            __host__ __device__ detail::tuple<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
             operator*() const noexcept
             {
                 return {index_, (*pointer_)[index_]};
@@ -3137,7 +3132,7 @@ namespace gpu_array
                 index_ -= n;
                 return *this;
             }
-            __host__ __device__ std::pair<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
+            __host__ __device__ detail::tuple<std::ranges::range_size_t<Range>, std::ranges::range_reference_t<Range>>
             operator[](difference_type n) const
             {
                 return *(*this + n);
@@ -3185,8 +3180,8 @@ namespace gpu_array
                 return x.index() - y.index();
             }
 
-            __host__ __device__ friend std::pair<std::ranges::range_size_t<Range>,
-                                                 std::ranges::range_rvalue_reference_t<Range>>
+            __host__ __device__ friend detail::tuple<std::ranges::range_size_t<Range>,
+                                                     std::ranges::range_rvalue_reference_t<Range>>
             iter_move(const enumerate_iterator& x)
             {
                 return {x.index(), std::move(x->second)};
