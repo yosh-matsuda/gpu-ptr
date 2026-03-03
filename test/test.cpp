@@ -2170,7 +2170,7 @@ __global__ void zip_test_init(T array, int coeff)
 template <std::ranges::input_range T, std::ranges::input_range U>
 requires std::ranges::input_range<std::ranges::range_value_t<T>> &&
          std::ranges::input_range<std::ranges::range_value_t<U>>
-__global__ void kernel_zip(T array1, U array2)
+__global__ void kernel_zip(T array1, const U array2)
 {
     for (auto&& [xs, ys] : zip_view(array1, array2) | views::grid_block_stride)
         for (auto&& [x, y] : zip_view(xs, ys) | views::block_thread_stride) x = x + y;
@@ -2203,6 +2203,56 @@ TEST(ZipView, Simple)
             EXPECT_EQ(x, (i * 20 + j) * 1001);
             ++j;
         }
+        ++i;
+    }
+}
+
+template <std::ranges::input_range Ts, std::ranges::input_range Us>
+__global__ void kernel_zip_enumerate(Ts ts, const Us us)
+{
+    for (auto&& [i, zipped] : zip_view(ts, us) | views::enumerate | views::grid_thread_stride)
+    {
+        auto&& [t, u] = zipped;
+        t = t * 100 + u * (i + 1);
+    }
+}
+
+TEST(ZipView, WithEnumerate)
+{
+    auto vec1 = std::vector<int>{19, 70, 86, 69};
+    auto vec2 = std::vector<int>{16, 6, 14, 17};
+    auto array1 = managed_array(vec1);
+    auto array2 = managed_array(vec2);
+    kernel_zip_enumerate<<<1, 2>>>(array1, array2);
+    api::gpuDeviceSynchronize();
+    for (int i = 0; const auto& t : array1)
+    {
+        EXPECT_EQ(t, vec1[i] * 100 + vec2[i] * (i + 1));
+        ++i;
+    }
+}
+
+template <std::ranges::input_range Ts, std::ranges::input_range Us>
+__global__ void kernel_enumerate_zip(Ts ts, const Us us)
+{
+    for (auto&& [enumerated, u] : zip_view(enumerate_view(ts), us) | views::grid_thread_stride)
+    {
+        auto&& [i, t] = enumerated;
+        t = t * 100 + u * (i + 1);
+    }
+}
+
+TEST(EnumerateView, WithZip)
+{
+    auto vec1 = std::vector<int>{19, 70, 86, 69};
+    auto vec2 = std::vector<int>{16, 6, 14, 17};
+    auto array1 = managed_array(vec1);
+    auto array2 = managed_array(vec2);
+    kernel_enumerate_zip<<<1, 2>>>(array1, array2);
+    api::gpuDeviceSynchronize();
+    for (int i = 0; const auto& t : array1)
+    {
+        EXPECT_EQ(t, vec1[i] * 100 + vec2[i] * (i + 1));
         ++i;
     }
 }

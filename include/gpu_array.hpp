@@ -3385,12 +3385,9 @@ namespace gpu_array
 
             __host__ __device__ friend auto iter_move(const zip_iterator& x)
             {
-                return detail::apply(
-                    [&x](auto&... pointers) {
-                        return detail::tuple<std::ranges::range_rvalue_reference_t<Ranges>...>(
-                            std::move((*pointers)[x.index()])...);
-                    },
-                    x.pointers_);
+                using Tuple = detail::tuple<std::ranges::range_rvalue_reference_t<Ranges>...>;
+                return detail::apply([&x](auto&... pointers) { return Tuple(std::move((*pointers)[x.index()])...); },
+                                     x.pointers_);
             }
 
         private:
