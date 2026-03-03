@@ -48,6 +48,83 @@
 #define SIGSEGV_DEPRECATED [[deprecated("Cannot access GPU memory directly")]]
 #endif
 
+namespace gpu_array::detail
+{
+    // Custom implementation of tuple for device code
+
+    template <std::size_t I, class T>
+    struct tuple_leaf
+    {
+        using type = T;
+        T value;
+    };
+
+    template <std::size_t I, class T>
+    tuple_leaf<I, T> at_index(const tuple_leaf<I, T>&);  // undefined
+
+    template <class Seq, class... Ts>
+    struct tuple_impl;
+
+    template <std::size_t... Is, class... Ts>
+    struct tuple_impl<std::index_sequence<Is...>, Ts...> : tuple_leaf<Is, Ts>...
+    {
+    };
+
+    template <class... Ts>
+    struct tuple
+    {
+        __host__ __device__ tuple()
+        requires (std::default_initializable<Ts> && ...)
+        = default;
+        __host__ __device__ tuple(Ts... ts) : base_{std::forward<Ts>(ts)...} {}
+        template <std::size_t I, class... Us>
+        __host__ __device__ friend auto& get(detail::tuple<Us...>&);
+        template <std::size_t I, class... Us>
+        __host__ __device__ friend const auto& get(const detail::tuple<Us...>&);
+        template <std::size_t I, class... Us>
+        __host__ __device__ friend auto&& get(detail::tuple<Us...>&&);
+        template <std::size_t I, class... Us>
+        __host__ __device__ friend const auto&& get(const detail::tuple<Us...>&&);
+
+    private:
+        using base = tuple_impl<std::index_sequence_for<Ts...>, Ts...>;
+        base base_;
+    };
+
+    template <std::size_t I, class... Us>
+    __host__ __device__ auto& get(detail::tuple<Us...>& t)
+    {
+        using leaf = decltype(at_index<I>(t.base_));
+        return static_cast<leaf&>(t.base_).value;
+    }
+    template <std::size_t I, class... Us>
+    __host__ __device__ const auto& get(const detail::tuple<Us...>& t)
+    {
+        using leaf = decltype(at_index<I>(t.base_));
+        return static_cast<const leaf&>(t.base_).value;
+    }
+    template <std::size_t I, class... Us>
+    __host__ __device__ auto&& get(detail::tuple<Us...>&& t)
+    {
+        using leaf = decltype(at_index<I>(t.base_));
+        return static_cast<typename leaf::type&&>(static_cast<leaf&>(t.base_).value);
+    }
+    template <std::size_t I, class... Us>
+    __host__ __device__ const auto&& get(const detail::tuple<Us...>&& t)
+    {
+        using leaf = decltype(at_index<I>(t.base_));
+        return static_cast<const typename leaf::type&&>(static_cast<const leaf&>(t.base_).value);
+    }
+}  // namespace gpu_array::detail
+
+template <class... Ts>
+struct std::tuple_size<gpu_array::detail::tuple<Ts...>> : std::integral_constant<std::size_t, sizeof...(Ts)>
+{
+};
+template <std::size_t I, class... Ts>
+struct std::tuple_element<I, gpu_array::detail::tuple<Ts...>> : std::tuple_element<I, std::tuple<Ts...>>
+{
+};
 #if !defined(__cpp_lib_tuple_like) || __cpp_lib_tuple_like < 202207L
 template <class T1, class T2, class U1, class U2, template <class> class TQual, template <class> class UQual>
 requires requires {
@@ -3209,13 +3286,28 @@ namespace gpu_array
 
     namespace detail
     {
+        template <class F, class Tuple, std::size_t... Is>
+        __host__ __device__ auto apply_impl(F&& f, Tuple&& t, std::index_sequence<Is...>)
+            -> decltype(std::forward<F>(f)(detail::get<Is>(std::forward<Tuple>(t))...))
+        {
+            return std::forward<F>(f)(detail::get<Is>(std::forward<Tuple>(t))...);
+        }
+
+        template <class F, class Tuple>
+        requires requires { std::tuple_size_v<std::remove_reference_t<Tuple>>; }
+        __host__ __device__ decltype(auto) apply(F&& f, Tuple&& t)
+        {
+            return apply_impl(std::forward<F>(f), std::forward<Tuple>(t),
+                              std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<Tuple>>>{});
+        }
+
         template <RandomAccessRange... Ranges>
         requires (std::ranges::view<Ranges> && ...)
         class zip_iterator
         {
         public:
             using iterator_category = std::forward_iterator_tag;
-            using value_type = std::tuple<std::ranges::range_value_t<Ranges>...>;
+            using value_type = detail::tuple<std::ranges::range_value_t<Ranges>...>;
             using difference_type = std::common_type_t<std::make_signed_t<std::ranges::range_size_t<Ranges>>...>;
 
             zip_iterator() = default;
@@ -3226,9 +3318,9 @@ namespace gpu_array
             }
             __host__ __device__ auto operator*() const noexcept
             {
-                return std::apply(
+                return detail::apply(
                     [this](auto&... pointers) {
-                        return std::tuple<std::ranges::range_reference_t<Ranges>...>((*pointers)[index_]...);
+                        return detail::tuple<std::ranges::range_reference_t<Ranges>...>((*pointers)[index_]...);
                     },
                     pointers_);
             }
@@ -3264,7 +3356,7 @@ namespace gpu_array
                 index_ -= n;
                 return *this;
             }
-            __host__ __device__ std::tuple<std::ranges::range_reference_t<Ranges>...> operator[](
+            __host__ __device__ detail::tuple<std::ranges::range_reference_t<Ranges>...> operator[](
                 difference_type n) const
             {
                 return *(*this + n);
@@ -3298,16 +3390,16 @@ namespace gpu_array
 
             __host__ __device__ friend auto iter_move(const zip_iterator& x)
             {
-                return std::apply(
+                return detail::apply(
                     [&x](auto&... pointers) {
-                        return std::tuple<std::ranges::range_rvalue_reference_t<Ranges>...>(
+                        return detail::tuple<std::ranges::range_rvalue_reference_t<Ranges>...>(
                             std::move((*pointers)[x.index()])...);
                     },
                     x.pointers_);
             }
 
         private:
-            std::tuple<Ranges*...> pointers_{};
+            detail::tuple<Ranges*...> pointers_{};
             std::common_type_t<std::ranges::range_size_t<Ranges>...> index_ = 0;
         };
 
@@ -3339,29 +3431,29 @@ namespace gpu_array
             __host__ __device__ explicit zip_view(Ranges... rs) noexcept : ranges_(rs...) {}
             [[nodiscard]] __host__ __device__ auto begin() noexcept
             {
-                return std::apply([](auto&... ranges) { return zip_iterator<Ranges...>(ranges...); }, ranges_);
+                return detail::apply([](auto&... ranges) { return zip_iterator<Ranges...>(ranges...); }, ranges_);
             }
             [[nodiscard]] __host__ __device__ auto begin() const noexcept
             requires (std::is_const_v<Ranges> && ...)
             {
-                return std::apply([](auto&... ranges) { return zip_iterator<Ranges...>(ranges...); }, ranges_);
+                return detail::apply([](auto&... ranges) { return zip_iterator<Ranges...>(ranges...); }, ranges_);
             }
             [[nodiscard]] __host__ __device__ auto end() noexcept
             {
-                return std::apply([](auto&... ranges) { return zip_sentinel<Ranges...>(ranges...); }, ranges_);
+                return detail::apply([](auto&... ranges) { return zip_sentinel<Ranges...>(ranges...); }, ranges_);
             }
             [[nodiscard]] __host__ __device__ auto end() const noexcept
             requires (std::is_const_v<Ranges> && ...)
             {
-                return std::apply([](auto&... ranges) { return zip_sentinel<Ranges...>(ranges...); }, ranges_);
+                return detail::apply([](auto&... ranges) { return zip_sentinel<Ranges...>(ranges...); }, ranges_);
             }
             [[nodiscard]] __host__ __device__ auto size() const noexcept
             {
-                return std::apply([](auto&... ranges) { return std::min({ranges.size()...}); }, ranges_);
+                return detail::apply([](auto&... ranges) { return std::min({ranges.size()...}); }, ranges_);
             }
 
         private:
-            std::tuple<Ranges...> ranges_{};
+            detail::tuple<Ranges...> ranges_{};
         };
 
         struct zip_adapter

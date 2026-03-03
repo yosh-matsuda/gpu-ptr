@@ -2159,75 +2159,52 @@ static_assert(detail::RandomAccessRange<zip_view<managed_array<int>>>);
 static_assert(std::ranges::sized_range<zip_view<managed_array<int>>>);
 static_assert(std::ranges::view<zip_view<managed_array<int>>>);
 
-// template <std::ranges::input_range T>
-// requires std::ranges::input_range<std::ranges::range_value_t<T>>
-// __global__ void zip_test_init(T array, int coeff)
-// {
-//     for (auto&& [i, xs] : enumerate_view(array) | views::grid_block_stride)
-//         for (auto&& [j, x] : enumerate_view(xs) | views::block_thread_stride) x = (i * xs.size() + j) * coeff;
-// }
+template <std::ranges::input_range T>
+requires std::ranges::input_range<std::ranges::range_value_t<T>>
+__global__ void zip_test_init(T array, int coeff)
+{
+    for (auto&& [i, xs] : enumerate_view(array) | views::grid_block_stride)
+        for (auto&& [j, x] : enumerate_view(xs) | views::block_thread_stride) x = (i * xs.size() + j) * coeff;
+}
 
-// template <std::ranges::input_range T, std::ranges::input_range U>
-// requires std::ranges::input_range<std::ranges::range_value_t<T>> &&
-//          std::ranges::input_range<std::ranges::range_value_t<U>>
-// __global__ void kernel_zip(T array1,  U array2)
-// {
-//     for (auto&& [xs, ys] : views::zip(array1, array2) | views::grid_block_stride)
-//         for (auto&& [x, y] : views::zip(xs, ys) | views::block_thread_stride) x = x + y;
-// }
+template <std::ranges::input_range T, std::ranges::input_range U>
+requires std::ranges::input_range<std::ranges::range_value_t<T>> &&
+         std::ranges::input_range<std::ranges::range_value_t<U>>
+__global__ void kernel_zip(T array1, U array2)
+{
+    for (auto&& [xs, ys] : zip_view(array1, array2) | views::grid_block_stride)
+        for (auto&& [x, y] : zip_view(xs, ys) | views::block_thread_stride) x = x + y;
+}
 
-// template <std::ranges::input_range T, std::ranges::input_range U>
-// requires std::ranges::input_range<std::ranges::range_value_t<T>> &&
-//          std::ranges::input_range<std::ranges::range_value_t<U>>
-// __global__ void kernel_zip2(T array1, const U array2)
-// {
-//     for (auto&& [xs, ys] : grid_block_zip_view(array1, array2))
-//         for (auto&& [x, y] : block_thread_zip_view(xs, ys)) x = x + y;
-// }
+TEST(ZipView, Simple)
+{
+    auto vec_vec = std::vector(10, std::vector<int>(20, 0));
+    auto array1 = managed_array(vec_vec);
+    auto array2 = managed_array(vec_vec);
+    zip_test_init<<<10, 20>>>(array1, 1);
+    api::gpuDeviceSynchronize();
+    for (int i = 0; const auto& xs : array1)
+    {
+        for (int j = 0; const auto& x : xs)
+        {
+            EXPECT_EQ(x, i * 20 + j);
+            ++j;
+        }
+        ++i;
+    }
 
-// TEST(ZipView, Simple)
-// {
-//     auto vec_vec = std::vector(10, std::vector<int>(20, 0));
-//     auto array1 = managed_array(vec_vec);
-//     auto array2 = managed_array(vec_vec);
-//     zip_test_init<<<10, 20>>>(array1, 1);
-//     api::gpuDeviceSynchronize();
-//     for (int i = 0; const auto& xs : array1)
-//     {
-//         for (int j = 0; const auto& x : xs)
-//         {
-//             EXPECT_EQ(x, i * 20 + j);
-//             ++j;
-//         }
-//         ++i;
-//     }
-
-//     zip_test_init<<<10, 20>>>(array2, 1000);
-//     kernel_zip<<<10, 20>>>(array1, array2);
-//     api::gpuDeviceSynchronize();
-//     for (int i = 0; const auto& xs : array1)
-//     {
-//         for (int j = 0; const auto& x : xs)
-//         {
-//             EXPECT_EQ(x, (i * 20 + j) * 1001);
-//             ++j;
-//         }
-//         ++i;
-//     }
-
-//     zip_test_init<<<10, 20>>>(array1, 1);
-//     zip_test_init<<<10, 20>>>(array2, 2000);
-//     kernel_zip2<<<10, 20>>>(array1, array2);
-//     api::gpuDeviceSynchronize();
-//     for (int i = 0; const auto& xs : array1)
-//     {
-//         for (int j = 0; const auto& x : xs)
-//         {
-//             EXPECT_EQ(x, (i * 20 + j) * 2001);
-//             ++j;
-//         }
-//         ++i;
-//     }
-// }
+    zip_test_init<<<10, 20>>>(array2, 1000);
+    kernel_zip<<<10, 20>>>(array1, array2);
+    api::gpuDeviceSynchronize();
+    for (int i = 0; const auto& xs : array1)
+    {
+        for (int j = 0; const auto& x : xs)
+        {
+            EXPECT_EQ(x, (i * 20 + j) * 1001);
+            ++j;
+        }
+        ++i;
+    }
+}
 #endif
 // NOLINTEND
