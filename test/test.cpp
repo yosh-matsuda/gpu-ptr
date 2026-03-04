@@ -2129,6 +2129,35 @@ static_assert(detail::RandomAccessRange<enumerate_view<managed_array<int>>>);
 static_assert(std::ranges::sized_range<enumerate_view<managed_array<int>>>);
 static_assert(std::ranges::view<enumerate_view<managed_array<int>>>);
 
+template <std::ranges::range Ts, std::ranges::range Uss>
+requires std::ranges::input_range<std::ranges::range_value_t<Uss>>
+__global__ void kernel_enumerate(const Ts ts, Uss uss)
+{
+    auto i = cooperative_groups::this_thread_block().thread_rank();
+    for (auto&& [j, t] : enumerate_view(ts))
+    {
+        uss[i][j] = t * (j + 1);
+    }
+}
+
+TEST(EnumerateView, Simple)
+{
+    auto vec1 = std::vector<int>{16, 6, 14, 17};
+    auto vec2 = std::vector(10, std::vector<int>(4, 0));
+    auto array1 = managed_array(vec1);
+    auto array2 = managed_array(vec2);
+    kernel_enumerate<<<1, 10>>>(array1, array2);
+    api::gpuDeviceSynchronize();
+    for (const auto& us : array2)
+    {
+        for (int j = 0; const auto& u : us)
+        {
+            EXPECT_EQ(u, vec1[j] * (j + 1));
+            ++j;
+        }
+    }
+}
+
 template <std::ranges::input_range T>
 requires std::ranges::input_range<std::ranges::range_value_t<T>>
 __global__ void kernel_enumerate_stride(T array)
@@ -2158,6 +2187,30 @@ TEST(EnumerateView, WithStride)
 static_assert(detail::RandomAccessRange<zip_view<managed_array<int>>>);
 static_assert(std::ranges::sized_range<zip_view<managed_array<int>>>);
 static_assert(std::ranges::view<zip_view<managed_array<int>>>);
+
+template <std::ranges::range Ts, std::ranges::range Us>
+__global__ void kernel_zip(Ts ts, const Us us)
+{
+    for (auto&& [t, u] : zip_view(ts, us))
+    {
+        t = t + u;
+    }
+}
+
+TEST(ZipView, Simple)
+{
+    auto vec1 = std::vector<int>{19, 70, 86, 69};
+    auto vec2 = std::vector<int>{16, 6, 14, 17};
+    auto array1 = managed_array(vec1);
+    auto array2 = managed_array(vec2);
+    kernel_zip<<<1, 2>>>(array1, array2);
+    api::gpuDeviceSynchronize();
+    for (int i = 0; const auto& t : array1)
+    {
+        EXPECT_EQ(t, vec1[i] + vec2[i]);
+        ++i;
+    }
+}
 
 template <std::ranges::input_range T>
 requires std::ranges::input_range<std::ranges::range_value_t<T>>
