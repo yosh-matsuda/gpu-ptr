@@ -2131,18 +2131,18 @@ static_assert(std::ranges::view<enumerate_view<managed_array<int>>>);
 
 template <std::ranges::input_range T>
 requires std::ranges::input_range<std::ranges::range_value_t<T>>
-__global__ void kernel_enumerate(T array)
+__global__ void kernel_enumerate_stride(T array)
 {
     for (auto&& [i, xs] : enumerate_view(array) | views::grid_block_stride)
         for (auto&& [j, x] : enumerate_view(xs) | views::block_thread_stride) x = i * 100 + j;
 }
 
-TEST(EnumerateView, Simple)
+TEST(EnumerateView, WithStride)
 {
     auto vec_vec = std::vector(32, std::vector<int>(64, 0));
     auto nested_array = managed_array(vec_vec);
 
-    kernel_enumerate<<<32, 64>>>(nested_array);
+    kernel_enumerate_stride<<<32, 64>>>(nested_array);
     api::gpuDeviceSynchronize();
     for (int i = 0; const auto& xs : nested_array)
     {
@@ -2170,13 +2170,13 @@ __global__ void zip_test_init(T array, int coeff)
 template <std::ranges::input_range T, std::ranges::input_range U>
 requires std::ranges::input_range<std::ranges::range_value_t<T>> &&
          std::ranges::input_range<std::ranges::range_value_t<U>>
-__global__ void kernel_zip(T array1, const U array2)
+__global__ void kernel_zip_stride(T array1, const U array2)
 {
     for (auto&& [xs, ys] : zip_view(array1, array2) | views::grid_block_stride)
         for (auto&& [x, y] : zip_view(xs, ys) | views::block_thread_stride) x = x + y;
 }
 
-TEST(ZipView, Simple)
+TEST(ZipView, WithStride)
 {
     auto vec_vec = std::vector(10, std::vector<int>(20, 0));
     auto array1 = managed_array(vec_vec);
@@ -2194,7 +2194,7 @@ TEST(ZipView, Simple)
     }
 
     zip_test_init<<<10, 20>>>(array2, 1000);
-    kernel_zip<<<10, 20>>>(array1, array2);
+    kernel_zip_stride<<<10, 20>>>(array1, array2);
     api::gpuDeviceSynchronize();
     for (int i = 0; const auto& xs : array1)
     {
@@ -2208,7 +2208,7 @@ TEST(ZipView, Simple)
 }
 
 template <std::ranges::input_range Ts, std::ranges::input_range Us>
-__global__ void kernel_zip_enumerate(Ts ts, const Us us)
+__global__ void kernel_zip_enumerate_stride(Ts ts, const Us us)
 {
     for (auto&& [i, zipped] : zip_view(ts, us) | views::enumerate | views::grid_thread_stride)
     {
@@ -2217,13 +2217,13 @@ __global__ void kernel_zip_enumerate(Ts ts, const Us us)
     }
 }
 
-TEST(ZipView, WithEnumerate)
+TEST(ZipView, WithEnumerateStride)
 {
     auto vec1 = std::vector<int>{19, 70, 86, 69};
     auto vec2 = std::vector<int>{16, 6, 14, 17};
     auto array1 = managed_array(vec1);
     auto array2 = managed_array(vec2);
-    kernel_zip_enumerate<<<1, 2>>>(array1, array2);
+    kernel_zip_enumerate_stride<<<1, 2>>>(array1, array2);
     api::gpuDeviceSynchronize();
     for (int i = 0; const auto& t : array1)
     {
@@ -2233,7 +2233,7 @@ TEST(ZipView, WithEnumerate)
 }
 
 template <std::ranges::input_range Ts, std::ranges::input_range Us>
-__global__ void kernel_enumerate_zip(Ts ts, const Us us)
+__global__ void kernel_enumerate_zip_stride(Ts ts, const Us us)
 {
     for (auto&& [enumerated, u] : zip_view(enumerate_view(ts), us) | views::grid_thread_stride)
     {
@@ -2242,13 +2242,13 @@ __global__ void kernel_enumerate_zip(Ts ts, const Us us)
     }
 }
 
-TEST(EnumerateView, WithZip)
+TEST(EnumerateView, WithZipStride)
 {
     auto vec1 = std::vector<int>{19, 70, 86, 69};
     auto vec2 = std::vector<int>{16, 6, 14, 17};
     auto array1 = managed_array(vec1);
     auto array2 = managed_array(vec2);
-    kernel_enumerate_zip<<<1, 2>>>(array1, array2);
+    kernel_enumerate_zip_stride<<<1, 2>>>(array1, array2);
     api::gpuDeviceSynchronize();
     for (int i = 0; const auto& t : array1)
     {
