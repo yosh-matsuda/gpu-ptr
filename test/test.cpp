@@ -6,19 +6,19 @@
 // NOLINTBEGIN
 using namespace gpu_array;
 
-// Example of custom tuple type derived from std::tuple
+// Example of custom tuple type derived from detail::tuple
 // You may need to specialize std::common_type and std::basic_common_reference to satisfy range concepts
 template <typename... Ts>
-class custom_tuple_example : public std::tuple<Ts...>
+class custom_tuple_example : public detail::tuple<Ts...>
 {
-    using base = std::tuple<Ts...>;
+    using base = detail::tuple<Ts...>;
     using base::base;
 
 public:
     template <std::size_t N>
     __host__ decltype(auto) get_string() const
     {
-        return std::to_string(std::get<N>(*this));
+        return std::to_string(detail::get<N>(*this));
     }
     using base::operator=;
     template <typename... Us>
@@ -1038,7 +1038,7 @@ TEST(StructureOfArrays, Construction)
 {
     using tuple_elem_type0 = int;
     using tuple_elem_type1 = double;
-    using tuple_type = std::tuple<tuple_elem_type0, tuple_elem_type1>;
+    using tuple_type = detail::tuple<tuple_elem_type0, tuple_elem_type1>;
     using custom_tuple_type = custom_tuple_example<tuple_elem_type0, tuple_elem_type1>;
 
     // initizalization
@@ -1052,18 +1052,18 @@ TEST(StructureOfArrays, Construction)
         auto vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(vec[i]), 0);
-            EXPECT_EQ(std::get<1>(vec[i]), 0.0);
+            EXPECT_EQ(detail::get<0>(vec[i]), 0);
+            EXPECT_EQ(detail::get<1>(vec[i]), 0.0);
         }
     }
     {
-        auto soa = structure_of_arrays<tuple_elem_type0, tuple_elem_type1>(10, std::tuple(1, 2.5));
+        auto soa = structure_of_arrays<tuple_elem_type0, tuple_elem_type1>(10, detail::tuple(1, 2.5));
         EXPECT_EQ(soa.size(), 10);
         auto vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(vec[i]), 1);
-            EXPECT_EQ(std::get<1>(vec[i]), 2.5);
+            EXPECT_EQ(detail::get<0>(vec[i]), 1);
+            EXPECT_EQ(detail::get<1>(vec[i]), 2.5);
         }
     }
     {
@@ -1080,18 +1080,18 @@ TEST(StructureOfArrays, Construction)
         auto vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(vec[i]), 0);
-            EXPECT_EQ(std::get<1>(vec[i]), 0.0);
+            EXPECT_EQ(detail::get<0>(vec[i]), 0);
+            EXPECT_EQ(detail::get<1>(vec[i]), 0.0);
         }
     }
     {
-        auto soa = structure_of_arrays<tuple_type>(10, std::tuple(1, 2.5));
+        auto soa = structure_of_arrays<tuple_type>(10, detail::tuple(1, 2.5));
         EXPECT_EQ(soa.size(), 10);
         auto vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(vec[i]), 1);
-            EXPECT_EQ(std::get<1>(vec[i]), 2.5);
+            EXPECT_EQ(detail::get<0>(vec[i]), 1);
+            EXPECT_EQ(detail::get<1>(vec[i]), 2.5);
         }
     }
     {
@@ -1108,8 +1108,8 @@ TEST(StructureOfArrays, Construction)
         auto vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(vec[i]), 0);
-            EXPECT_EQ(std::get<1>(vec[i]), 0.0);
+            EXPECT_EQ(detail::get<0>(vec[i]), 0);
+            EXPECT_EQ(detail::get<1>(vec[i]), 0.0);
         }
     }
     {
@@ -1118,8 +1118,8 @@ TEST(StructureOfArrays, Construction)
         auto vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(vec[i]), 1);
-            EXPECT_EQ(std::get<1>(vec[i]), 2.5);
+            EXPECT_EQ(detail::get<0>(vec[i]), 1);
+            EXPECT_EQ(detail::get<1>(vec[i]), 2.5);
         }
     }
     {
@@ -1158,7 +1158,7 @@ TEST(StructureOfArrays, Construction)
         EXPECT_EQ(arr1.use_count(), 1);
     }
 
-    // construction from range of std::tuple
+    // construction from range of detail::tuple
     {
         auto vec = std::vector<tuple_type>();
         for (std::size_t i = 0; i < 10; ++i)
@@ -1171,17 +1171,17 @@ TEST(StructureOfArrays, Construction)
         EXPECT_EQ(soa_vec, vec);
     }
 
-    // construction from initializer_list of std::tuple
+    // construction from initializer_list of detail::tuple
     {
         auto soa = structure_of_arrays<tuple_type>({{0, 0.5}, {1, 1.5}, {2, 2.5}});
         EXPECT_EQ(soa.size(), 3);
         const auto soa_vec = soa.to<std::vector>();
-        EXPECT_EQ(std::get<0>(soa_vec[0]), 0);
-        EXPECT_EQ(std::get<1>(soa_vec[0]), 0.5);
-        EXPECT_EQ(std::get<0>(soa_vec[1]), 1);
-        EXPECT_EQ(std::get<1>(soa_vec[1]), 1.5);
-        EXPECT_EQ(std::get<0>(soa_vec[2]), 2);
-        EXPECT_EQ(std::get<1>(soa_vec[2]), 2.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[0]), 0);
+        EXPECT_EQ(detail::get<1>(soa_vec[0]), 0.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[1]), 1);
+        EXPECT_EQ(detail::get<1>(soa_vec[1]), 1.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[2]), 2);
+        EXPECT_EQ(detail::get<1>(soa_vec[2]), 2.5);
     }
 
     // construction from multiple ranges
@@ -1198,8 +1198,8 @@ TEST(StructureOfArrays, Construction)
         const auto soa_vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < soa_vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(soa_vec[i]), vec0[i]);
-            EXPECT_EQ(std::get<1>(soa_vec[i]), vec1[i]);
+            EXPECT_EQ(detail::get<0>(soa_vec[i]), vec0[i]);
+            EXPECT_EQ(detail::get<1>(soa_vec[i]), vec1[i]);
         }
     }
 
@@ -1208,12 +1208,12 @@ TEST(StructureOfArrays, Construction)
         auto soa = structure_of_arrays<tuple_elem_type0, tuple_elem_type1>({0, 1, 2}, {0.5, 1.5, 2.5});
         EXPECT_EQ(soa.size(), 3);
         const auto soa_vec = soa.to<std::vector>();
-        EXPECT_EQ(std::get<0>(soa_vec[0]), 0);
-        EXPECT_EQ(std::get<1>(soa_vec[0]), 0.5);
-        EXPECT_EQ(std::get<0>(soa_vec[1]), 1);
-        EXPECT_EQ(std::get<1>(soa_vec[1]), 1.5);
-        EXPECT_EQ(std::get<0>(soa_vec[2]), 2);
-        EXPECT_EQ(std::get<1>(soa_vec[2]), 2.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[0]), 0);
+        EXPECT_EQ(detail::get<1>(soa_vec[0]), 0.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[1]), 1);
+        EXPECT_EQ(detail::get<1>(soa_vec[1]), 1.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[2]), 2);
+        EXPECT_EQ(detail::get<1>(soa_vec[2]), 2.5);
     }
 
     // construction from range of custom tuple
@@ -1228,9 +1228,9 @@ TEST(StructureOfArrays, Construction)
         const auto soa_vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < soa_vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(soa_vec[i]), static_cast<tuple_elem_type0>(i));
+            EXPECT_EQ(detail::get<0>(soa_vec[i]), static_cast<tuple_elem_type0>(i));
             EXPECT_EQ(soa_vec[i].get_string<0>(), std::to_string(i));
-            EXPECT_EQ(std::get<1>(soa_vec[i]), static_cast<tuple_elem_type1>(i) + 0.5);
+            EXPECT_EQ(detail::get<1>(soa_vec[i]), static_cast<tuple_elem_type1>(i) + 0.5);
             EXPECT_EQ(soa_vec[i].get_string<1>(), std::to_string(i + 0.5));
         }
     }
@@ -1252,7 +1252,7 @@ TEST(StructureOfArrays, Export)
 {
     using tuple_elem_type0 = int;
     using tuple_elem_type1 = double;
-    using tuple_type = std::tuple<tuple_elem_type0, tuple_elem_type1>;
+    using tuple_type = detail::tuple<tuple_elem_type0, tuple_elem_type1>;
 
     // export to range with same value type
     {
@@ -1278,7 +1278,7 @@ TEST(StructureOfArrays, Export)
 
 TEST(StructureOfArrays, RangeInterface)
 {
-    using tuple_type = std::tuple<int, double>;
+    using tuple_type = detail::tuple<int, double>;
     using soa_type1 = structure_of_arrays<int, double>;
     using soa_type2 = structure_of_arrays<tuple_type>;
     using soa_type3 = structure_of_arrays<custom_tuple_example<int, double>>;
@@ -1350,20 +1350,20 @@ TEST(StructureOfArrays, RangeInterface)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
-        static_assert(std::same_as<decltype(soa[0]), std::tuple<decltype(*soa.data<0>()), decltype(*soa.data<1>())>>);
+        static_assert(std::same_as<decltype(soa[0]), detail::tuple<decltype(*soa.data<0>()), decltype(*soa.data<1>())>>);
         static_assert(
-            std::same_as<decltype(*soa.begin()), std::tuple<decltype(*soa.data<0>()), decltype(*soa.data<1>())>>);
+            std::same_as<decltype(*soa.begin()), detail::tuple<decltype(*soa.data<0>()), decltype(*soa.data<1>())>>);
         static_assert(std::same_as<decltype(*(soa.end() - 1)),
-                                   std::tuple<decltype(*(soa.data<0>() + 9)), decltype(*(soa.data<1>() + 9))>>);
+                                   detail::tuple<decltype(*(soa.data<0>() + 9)), decltype(*(soa.data<1>() + 9))>>);
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
-        soa = {std::tuple(0, 0.0), std::tuple(1, 1.0), std::tuple(2, 2.0), std::tuple(3, 3.0), std::tuple(4, 4.0)};
+        soa = {detail::tuple(0, 0.0), detail::tuple(1, 1.0), detail::tuple(2, 2.0), detail::tuple(3, 3.0), detail::tuple(4, 4.0)};
         auto vec = soa.to<std::vector>();
         for (std::size_t i = 0; i < vec.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(vec[i]), static_cast<int>(i));
-            EXPECT_EQ(std::get<1>(vec[i]), static_cast<double>(i));
+            EXPECT_EQ(detail::get<0>(vec[i]), static_cast<int>(i));
+            EXPECT_EQ(detail::get<1>(vec[i]), static_cast<double>(i));
         }
     }
 }
@@ -1385,7 +1385,7 @@ TEST(ManagedStructureOfArrays, Construction)
 {
     using tuple_elem_type0 = int;
     using tuple_elem_type1 = double;
-    using tuple_type = std::tuple<tuple_elem_type0, tuple_elem_type1>;
+    using tuple_type = detail::tuple<tuple_elem_type0, tuple_elem_type1>;
     using custom_tuple_type = custom_tuple_example<tuple_elem_type0, tuple_elem_type1>;
 
     // initizalization
@@ -1398,17 +1398,17 @@ TEST(ManagedStructureOfArrays, Construction)
         EXPECT_EQ(soa.size(), 10);
         for (const auto& v : soa)
         {
-            EXPECT_EQ(std::get<0>(v), 0);
-            EXPECT_EQ(std::get<1>(v), 0.0);
+            EXPECT_EQ(detail::get<0>(v), 0);
+            EXPECT_EQ(detail::get<1>(v), 0.0);
         }
     }
     {
-        auto soa = managed_structure_of_arrays<tuple_elem_type0, tuple_elem_type1>(10, std::tuple(1, 2.5));
+        auto soa = managed_structure_of_arrays<tuple_elem_type0, tuple_elem_type1>(10, detail::tuple(1, 2.5));
         EXPECT_EQ(soa.size(), 10);
         for (const auto& v : soa)
         {
-            EXPECT_EQ(std::get<0>(v), 1);
-            EXPECT_EQ(std::get<1>(v), 2.5);
+            EXPECT_EQ(detail::get<0>(v), 1);
+            EXPECT_EQ(detail::get<1>(v), 2.5);
         }
     }
     {
@@ -1424,17 +1424,17 @@ TEST(ManagedStructureOfArrays, Construction)
         EXPECT_EQ(soa.size(), 10);
         for (const auto& v : soa)
         {
-            EXPECT_EQ(std::get<0>(v), 0);
-            EXPECT_EQ(std::get<1>(v), 0.0);
+            EXPECT_EQ(detail::get<0>(v), 0);
+            EXPECT_EQ(detail::get<1>(v), 0.0);
         }
     }
     {
-        auto soa = managed_structure_of_arrays<tuple_type>(10, std::tuple(1, 2.5));
+        auto soa = managed_structure_of_arrays<tuple_type>(10, detail::tuple(1, 2.5));
         EXPECT_EQ(soa.size(), 10);
         for (const auto& v : soa)
         {
-            EXPECT_EQ(std::get<0>(v), 1);
-            EXPECT_EQ(std::get<1>(v), 2.5);
+            EXPECT_EQ(detail::get<0>(v), 1);
+            EXPECT_EQ(detail::get<1>(v), 2.5);
         }
     }
     {
@@ -1450,8 +1450,8 @@ TEST(ManagedStructureOfArrays, Construction)
         EXPECT_EQ(soa.size(), 10);
         for (const auto& v : soa)
         {
-            EXPECT_EQ(std::get<0>(v), 0);
-            EXPECT_EQ(std::get<1>(v), 0.0);
+            EXPECT_EQ(detail::get<0>(v), 0);
+            EXPECT_EQ(detail::get<1>(v), 0.0);
         }
     }
     {
@@ -1459,8 +1459,8 @@ TEST(ManagedStructureOfArrays, Construction)
         EXPECT_EQ(soa.size(), 10);
         for (const auto& v : soa)
         {
-            EXPECT_EQ(std::get<0>(v), 1);
-            EXPECT_EQ(std::get<1>(v), 2.5);
+            EXPECT_EQ(detail::get<0>(v), 1);
+            EXPECT_EQ(detail::get<1>(v), 2.5);
         }
     }
     {
@@ -1499,7 +1499,7 @@ TEST(ManagedStructureOfArrays, Construction)
         EXPECT_EQ(arr1.use_count(), 1);
     }
 
-    // construction from range of std::tuple
+    // construction from range of detail::tuple
     {
         auto vec = std::vector<tuple_type>();
         for (std::size_t i = 0; i < 10; ++i)
@@ -1510,21 +1510,21 @@ TEST(ManagedStructureOfArrays, Construction)
         EXPECT_EQ(soa.size(), 10);
         for (std::size_t i = 0; i < 10; ++i)
         {
-            EXPECT_EQ(std::get<0>(soa[i]), std::get<0>(vec[i]));
-            EXPECT_EQ(std::get<1>(soa[i]), std::get<1>(vec[i]));
+            EXPECT_EQ(detail::get<0>(soa[i]), detail::get<0>(vec[i]));
+            EXPECT_EQ(detail::get<1>(soa[i]), detail::get<1>(vec[i]));
         }
     }
 
-    // construction from initializer_list of std::tuple
+    // construction from initializer_list of detail::tuple
     {
         auto soa = managed_structure_of_arrays<tuple_type>({{0, 0.5}, {1, 1.5}, {2, 2.5}});
         EXPECT_EQ(soa.size(), 3);
-        EXPECT_EQ(std::get<0>(soa[0]), 0);
-        EXPECT_EQ(std::get<1>(soa[0]), 0.5);
-        EXPECT_EQ(std::get<0>(soa[1]), 1);
-        EXPECT_EQ(std::get<1>(soa[1]), 1.5);
-        EXPECT_EQ(std::get<0>(soa[2]), 2);
-        EXPECT_EQ(std::get<1>(soa[2]), 2.5);
+        EXPECT_EQ(detail::get<0>(soa[0]), 0);
+        EXPECT_EQ(detail::get<1>(soa[0]), 0.5);
+        EXPECT_EQ(detail::get<0>(soa[1]), 1);
+        EXPECT_EQ(detail::get<1>(soa[1]), 1.5);
+        EXPECT_EQ(detail::get<0>(soa[2]), 2);
+        EXPECT_EQ(detail::get<1>(soa[2]), 2.5);
     }
 
     // construction from multiple ranges
@@ -1540,8 +1540,8 @@ TEST(ManagedStructureOfArrays, Construction)
         EXPECT_EQ(soa.size(), 10);
         for (std::size_t i = 0; const auto& v : soa)
         {
-            EXPECT_EQ(std::get<0>(v), vec0[i]);
-            EXPECT_EQ(std::get<1>(v), vec1[i]);
+            EXPECT_EQ(detail::get<0>(v), vec0[i]);
+            EXPECT_EQ(detail::get<1>(v), vec1[i]);
             ++i;
         }
     }
@@ -1551,12 +1551,12 @@ TEST(ManagedStructureOfArrays, Construction)
         auto soa = managed_structure_of_arrays<tuple_elem_type0, tuple_elem_type1>({0, 1, 2}, {0.5, 1.5, 2.5});
         EXPECT_EQ(soa.size(), 3);
         const auto soa_vec = soa.to<std::vector>();
-        EXPECT_EQ(std::get<0>(soa_vec[0]), 0);
-        EXPECT_EQ(std::get<1>(soa_vec[0]), 0.5);
-        EXPECT_EQ(std::get<0>(soa_vec[1]), 1);
-        EXPECT_EQ(std::get<1>(soa_vec[1]), 1.5);
-        EXPECT_EQ(std::get<0>(soa_vec[2]), 2);
-        EXPECT_EQ(std::get<1>(soa_vec[2]), 2.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[0]), 0);
+        EXPECT_EQ(detail::get<1>(soa_vec[0]), 0.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[1]), 1);
+        EXPECT_EQ(detail::get<1>(soa_vec[1]), 1.5);
+        EXPECT_EQ(detail::get<0>(soa_vec[2]), 2);
+        EXPECT_EQ(detail::get<1>(soa_vec[2]), 2.5);
     }
 
     // construction from range of custom tuple
@@ -1570,9 +1570,9 @@ TEST(ManagedStructureOfArrays, Construction)
         EXPECT_EQ(soa.size(), 10);
         for (std::size_t i = 0; i < soa.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(soa[i]), static_cast<tuple_elem_type0>(i));
+            EXPECT_EQ(detail::get<0>(soa[i]), static_cast<tuple_elem_type0>(i));
             EXPECT_EQ(soa[i].get_string<0>(), std::to_string(i));
-            EXPECT_EQ(std::get<1>(soa[i]), static_cast<tuple_elem_type1>(i) + 0.5);
+            EXPECT_EQ(detail::get<1>(soa[i]), static_cast<tuple_elem_type1>(i) + 0.5);
             EXPECT_EQ(soa[i].get_string<1>(), std::to_string(i + 0.5));
         }
     }
@@ -1595,7 +1595,7 @@ TEST(ManagedStructureOfArrays, Export)
 {
     using tuple_elem_type0 = int;
     using tuple_elem_type1 = double;
-    using tuple_type = std::tuple<tuple_elem_type0, tuple_elem_type1>;
+    using tuple_type = detail::tuple<tuple_elem_type0, tuple_elem_type1>;
 
     // export to range with same value type
     {
@@ -1621,7 +1621,7 @@ TEST(ManagedStructureOfArrays, Export)
 
 TEST(ManagedStructureOfArrays, RangeInterface)
 {
-    using tuple_type = std::tuple<int, double>;
+    using tuple_type = detail::tuple<int, double>;
     using soa_type1 = managed_structure_of_arrays<int, double>;
     using soa_type2 = managed_structure_of_arrays<tuple_type>;
     using soa_type3 = managed_structure_of_arrays<custom_tuple_example<int, double>>;
@@ -1682,15 +1682,15 @@ TEST(ManagedStructureOfArrays, RangeInterface)
         EXPECT_NE(soa.data<1>(), nullptr);
         EXPECT_EQ(soa.size(), 10);
         EXPECT_FALSE(soa.empty());
-        EXPECT_EQ(soa[0], std::tuple(*soa.data<0>(), *soa.data<1>()));
-        EXPECT_EQ(*soa.begin(), std::tuple(*soa.data<0>(), *soa.data<1>()));
-        EXPECT_EQ(*(soa.end() - 1), std::tuple(*(soa.data<0>() + 9), *(soa.data<1>() + 9)));
+        EXPECT_EQ(soa[0], detail::tuple(*soa.data<0>(), *soa.data<1>()));
+        EXPECT_EQ(*soa.begin(), detail::tuple(*soa.data<0>(), *soa.data<1>()));
+        EXPECT_EQ(*(soa.end() - 1), detail::tuple(*(soa.data<0>() + 9), *(soa.data<1>() + 9)));
 
-        soa = {std::tuple(0, 0.0), std::tuple(1, 1.0), std::tuple(2, 2.0), std::tuple(3, 3.0), std::tuple(4, 4.0)};
+        soa = {detail::tuple(0, 0.0), detail::tuple(1, 1.0), detail::tuple(2, 2.0), detail::tuple(3, 3.0), detail::tuple(4, 4.0)};
         for (std::size_t i = 0; i < soa.size(); ++i)
         {
-            EXPECT_EQ(std::get<0>(soa[i]), static_cast<int>(i));
-            EXPECT_EQ(std::get<1>(soa[i]), static_cast<double>(i));
+            EXPECT_EQ(detail::get<0>(soa[i]), static_cast<int>(i));
+            EXPECT_EQ(detail::get<1>(soa[i]), static_cast<double>(i));
         }
     }
 }
@@ -1711,7 +1711,7 @@ TEST(ManagedStructureOfArrays, SmartPointerInterface)
 TEST(ManagedStructureOfArrays, MemoryManagement)
 {
     // create nested managed_array
-    auto elms = std::vector<std::tuple<int, managed_array<double>>>();
+    auto elms = std::vector<detail::tuple<int, managed_array<double>>>();
     for (std::size_t i = 0; i < 10; ++i) elms.emplace_back(i, managed_array<double>(i, 99));
     auto soa = managed_structure_of_arrays(elms);
 
@@ -1826,7 +1826,7 @@ TEST(JaggedArray, Construction)
 
     // construction from nested containers for jagged structure of arrays
     {
-        using tuple_type = std::tuple<int, double>;
+        using tuple_type = detail::tuple<int, double>;
         auto vec_tpl = std::vector<std::vector<tuple_type>>{
             std::vector<tuple_type>(1, {0, 0.5}), std::vector<tuple_type>(2, {1, 1.5}),
             std::vector<tuple_type>(3, {2, 2.5}), std::vector<tuple_type>(4, {3, 3.5}),
@@ -1891,12 +1891,12 @@ TEST(JaggedArray, Construction)
 
     // construction from container of sizes and flat range (structure of arrays)
     {
-        auto flat_range = std::vector<std::tuple<int, double>>{
+        auto flat_range = std::vector<detail::tuple<int, double>>{
             {0, 0.5}, {1, 1.5}, {2, 2.5},   {3, 3.5},   {4, 4.5},   {5, 5.5},   {6, 6.5},  {7, 7.5},
             {8, 8.5}, {9, 9.5}, {10, 10.5}, {11, 11.5}, {12, 12.5}, {13, 13.5}, {14, 14.5}};
         auto sizes = std::vector<std::uint32_t>{1, 2, 3, 4, 5};
 
-        auto jagged_arr = jagged_array<managed_structure_of_arrays<std::tuple<int, double>>>(
+        auto jagged_arr = jagged_array<managed_structure_of_arrays<detail::tuple<int, double>>>(
             sizes, flat_range);  // no deduction guide
 
         EXPECT_EQ(jagged_arr.size(), 15);
@@ -1905,7 +1905,7 @@ TEST(JaggedArray, Construction)
             EXPECT_EQ(jagged_arr.size(i), sizes[i]);
             for (const auto& v : jagged_arr.row(i))
             {
-                EXPECT_EQ(v, (std::tuple<int, double>(j, static_cast<double>(j) + 0.5)));
+                EXPECT_EQ(v, (detail::tuple<int, double>(j, static_cast<double>(j) + 0.5)));
                 ++j;
             }
         }
@@ -1926,7 +1926,7 @@ TEST(JaggedArray, Construction)
 
     // construction from nested initializer_list (managed structure of arrays)
     {
-        using tuple_type = std::tuple<int, double>;
+        using tuple_type = detail::tuple<int, double>;
         auto jagged_arr = jagged_array<managed_structure_of_arrays<tuple_type>>{
             {{0, 0.5}},
             {{1, 1.5}, {1, 1.5}},
@@ -1967,7 +1967,7 @@ TEST(JaggedArray, Construction)
 
     // wrap managed structure of arrays with sizes
     {
-        using tuple_type = std::tuple<int, double>;
+        using tuple_type = detail::tuple<int, double>;
         auto sizes = std::vector<std::uint32_t>{3, 1, 4, 1, 5};
         auto arr = managed_structure_of_arrays<tuple_type>(14, tuple_type(42, 99.0));
         auto jagged_arr_wrap = jagged_array(sizes, arr);
@@ -1985,8 +1985,8 @@ TEST(JaggedArray, Construction)
             EXPECT_EQ(jagged_arr_wrap.size(i), sizes[i]);
             for (const auto& v : jagged_arr_wrap.row(i))
             {
-                EXPECT_EQ(std::get<0>(v), 42);
-                EXPECT_EQ(std::get<1>(v), 99.0);
+                EXPECT_EQ(detail::get<0>(v), 42);
+                EXPECT_EQ(detail::get<1>(v), 99.0);
             }
         }
     }

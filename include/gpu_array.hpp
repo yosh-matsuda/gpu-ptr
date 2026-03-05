@@ -48,6 +48,187 @@
 #define SIGSEGV_DEPRECATED [[deprecated("Cannot access GPU memory directly")]]
 #endif
 
+namespace gpu_array::detail
+{
+    // Custom implementation of tuple for device code
+
+    template <std::size_t I, class T>
+    struct tuple_leaf
+    {
+        using type = T;
+        T value;
+    };
+
+    template <std::size_t I, class T>
+    tuple_leaf<I, T> at_index(const tuple_leaf<I, T>&);  // undefined
+
+    template <class Seq, class... Ts>
+    struct tuple_impl;
+
+    template <std::size_t... Is, class... Ts>
+    struct tuple_impl<std::index_sequence<Is...>, Ts...> : tuple_leaf<Is, Ts>...
+    {
+        tuple_impl()
+        requires (std::default_initializable<Ts> && ...)
+        = default;
+        template <class... Us>
+        requires (sizeof...(Us) == sizeof...(Ts))
+        __host__ __device__ tuple_impl(Us&&... us) : tuple_leaf<Is, Ts>(std::forward<Us>(us))...
+        {
+        }
+    };
+
+    template <class... Ts>
+    struct tuple
+    {
+        tuple()
+        requires (std::default_initializable<Ts> && ...)
+        = default;
+
+        template <class... Us>
+        struct is_single_tuple : std::false_type
+        {
+        };
+        template <class... Us>
+        struct is_single_tuple<detail::tuple<Us...>> : std::true_type
+        {
+        };
+        template <class... Us>
+        requires (sizeof...(Us) == sizeof...(Ts) && !is_single_tuple<std::remove_cvref_t<Us>...>::value)
+        __host__ __device__ tuple(Us&&... us) : base_{std::forward<Us>(us)...}
+        {
+        }
+
+        template <class... Us>
+        requires (sizeof...(Us) == sizeof...(Ts))
+        __host__ __device__ tuple(const detail::tuple<Us...>& t)
+            : tuple{tuple_convert(t, std::index_sequence_for<Ts...>{})}
+        {
+        }
+        template <class... Us>
+        requires (sizeof...(Us) == sizeof...(Ts))
+        __host__ __device__ tuple(detail::tuple<Us...>&& t)
+            : tuple{tuple_convert(std::move(t), std::index_sequence_for<Ts...>{})}
+        {
+        }
+        template <class... Us>
+        requires (sizeof...(Us) == sizeof...(Ts))
+        __host__ __device__ auto& operator=(const detail::tuple<Us...>& t)
+        {
+            *this = tuple_convert(t, std::index_sequence_for<Ts...>{});
+            return *this;
+        }
+        template <class... Us>
+        requires (sizeof...(Us) == sizeof...(Ts))
+        __host__ __device__ auto& operator=(detail::tuple<Us...>&& t)
+        {
+            *this = tuple_convert(std::move(t), std::index_sequence_for<Ts...>{});
+            return *this;
+        }
+
+        template <std::size_t I, class... Us>
+        __host__ __device__ friend auto& get(detail::tuple<Us...>&);
+        template <std::size_t I, class... Us>
+        __host__ __device__ friend const auto& get(const detail::tuple<Us...>&);
+        template <std::size_t I, class... Us>
+        __host__ __device__ friend auto&& get(detail::tuple<Us...>&&);
+        template <std::size_t I, class... Us>
+        __host__ __device__ friend const auto&& get(const detail::tuple<Us...>&&);
+
+    private:
+        template <class... Us, std::size_t... Is>
+        static auto tuple_convert(const detail::tuple<Us...>& t, std::index_sequence<Is...>)
+        {
+            return detail::tuple<Ts...>{get<Is>(t)...};
+        }
+        template <class... Us, std::size_t... Is>
+        static auto tuple_convert(detail::tuple<Us...>&& t, std::index_sequence<Is...>)
+        {
+            return detail::tuple<Ts...>{std::move(get<Is>(t))...};
+        }
+
+        using base = tuple_impl<std::index_sequence_for<Ts...>, Ts...>;
+        base base_;
+    };
+
+    template <class... Ts>
+    tuple(Ts...) -> tuple<Ts...>;
+
+    template <std::size_t I, class... Us>
+    __host__ __device__ auto& get(detail::tuple<Us...>& t)
+    {
+        using leaf = decltype(at_index<I>(t.base_));
+        return static_cast<leaf&>(t.base_).value;
+    }
+    template <std::size_t I, class... Us>
+    __host__ __device__ const auto& get(const detail::tuple<Us...>& t)
+    {
+        using leaf = decltype(at_index<I>(t.base_));
+        return static_cast<const leaf&>(t.base_).value;
+    }
+    template <std::size_t I, class... Us>
+    __host__ __device__ auto&& get(detail::tuple<Us...>&& t)
+    {
+        using leaf = decltype(at_index<I>(t.base_));
+        return static_cast<typename leaf::type&&>(static_cast<leaf&>(t.base_).value);
+    }
+    template <std::size_t I, class... Us>
+    __host__ __device__ const auto&& get(const detail::tuple<Us...>&& t)
+    {
+        using leaf = decltype(at_index<I>(t.base_));
+        return static_cast<const typename leaf::type&&>(static_cast<const leaf&>(t.base_).value);
+    }
+
+    template <class... Ts, class... Us, std::size_t... Is>
+    __host__ __device__ bool tuple_equal_impl(const detail::tuple<Ts...>& t, const detail::tuple<Us...>& u,
+                                              std::index_sequence<Is...>)
+    {
+        return ((detail::get<Is>(t) == detail::get<Is>(u)) && ...);
+    }
+    template <class... Ts, class... Us>
+    requires (sizeof...(Ts) == sizeof...(Us))
+    __host__ __device__ bool operator==(const detail::tuple<Ts...>& t, const detail::tuple<Us...>& u)
+    {
+        return tuple_equal_impl(t, u, std::index_sequence_for<Ts...>{});
+    }
+
+    template <class F, class Tuple, std::size_t... Is>
+    requires requires { std::declval<F>()(detail::get<Is>(std::declval<Tuple>())...); }
+    __host__ __device__ decltype(auto) apply_impl(F&& f, Tuple&& t, std::index_sequence<Is...>)
+    {
+        return std::forward<F>(f)(detail::get<Is>(std::forward<Tuple>(t))...);
+    }
+    template <class F, class Tuple>
+    requires requires { std::tuple_size_v<std::remove_reference_t<Tuple>>; }
+    __host__ __device__ decltype(auto) apply(F&& f, Tuple&& t)
+    {
+        return apply_impl(std::forward<F>(f), std::forward<Tuple>(t),
+                          std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<Tuple>>>{});
+    }
+}  // namespace gpu_array::detail
+
+template <class... Ts>
+struct std::tuple_size<gpu_array::detail::tuple<Ts...>> : std::integral_constant<std::size_t, sizeof...(Ts)>
+{
+};
+template <std::size_t I, class... Ts>
+struct std::tuple_element<I, gpu_array::detail::tuple<Ts...>> : std::tuple_element<I, std::tuple<Ts...>>
+{
+};
+template <class... TTypes, class... UTypes>
+requires requires { typename gpu_array::detail::tuple<std::common_type_t<TTypes, UTypes>...>; }
+struct std::common_type<gpu_array::detail::tuple<TTypes...>, gpu_array::detail::tuple<UTypes...>>
+{
+    using type = gpu_array::detail::tuple<std::common_type_t<TTypes, UTypes>...>;
+};
+template <class... TTypes, class... UTypes, template <class> class TQual, template <class> class UQual>
+requires requires { typename gpu_array::detail::tuple<std::common_reference_t<TQual<TTypes>, UQual<UTypes>>...>; }
+struct std::basic_common_reference<gpu_array::detail::tuple<TTypes...>, gpu_array::detail::tuple<UTypes...>, TQual,
+                                   UQual>
+{
+    using type = gpu_array::detail::tuple<std::common_reference_t<TQual<TTypes>, UQual<UTypes>>...>;
+};
+
 namespace gpu_array
 {
 #if defined(GPU_USE_32BIT_SIZE_TYPE_DEFAULT)
@@ -120,11 +301,11 @@ namespace gpu_array
 
         protected:
             size_type size_ = 0U;
-            std::tuple<ValueTypes*...> data_;
+            detail::tuple<ValueTypes*...> data_;
             std::uint32_t* ref_count_ = nullptr;  // reference counter, not used on GPU
 
             template <std::size_t N>
-            using element_type = std::tuple_element_t<N, std::tuple<ValueTypes...>>;
+            using element_type = std::tuple_element_t<N, detail::tuple<ValueTypes...>>;
 
             __host__ __device__ void init()
             {
@@ -255,11 +436,11 @@ namespace gpu_array
 
             __host__ __device__ void tuple_for_each(auto&& f) const
             {
-                std::apply([&f](const auto&... args) { (f(args), ...); }, data_);
+                detail::apply([&f](const auto&... args) { (f(args), ...); }, data_);
             }
             __host__ __device__ void tuple_for_each(auto&& f)
             {
-                std::apply([&f](auto&... args) { (f(args), ...); }, data_);
+                detail::apply([&f](auto&... args) { (f(args), ...); }, data_);
             }
         };
 
@@ -427,8 +608,8 @@ namespace gpu_array
         {
             return *(data() + base::size_ - 1);
         }
-        __host__ __device__ pointer data() noexcept { return std::get<0>(base::data_); }
-        __host__ __device__ const_pointer data() const noexcept { return std::get<0>(base::data_); }
+        __host__ __device__ pointer data() noexcept { return detail::get<0>(base::data_); }
+        __host__ __device__ const_pointer data() const noexcept { return detail::get<0>(base::data_); }
 
         array() = default;
         __host__ __device__ array(const array& r) : base(r) {}
@@ -438,8 +619,8 @@ namespace gpu_array
         {
             if (base::size_ == 0) return;
             auto buf = std::make_unique<value_type[]>(base::size_);
-            GPU_CHECK_ERROR(
-                api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type) * base::size_));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
+                                           sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             GPU_CHECK_ERROR(api::gpuMemcpy(data(), buf.get(), sizeof(value_type) * base::size_, gpuMemcpyHostToDevice));
         }
@@ -447,8 +628,8 @@ namespace gpu_array
         __host__ array(std::size_t size, default_init_tag) : base(size)
         {
             if (base::size_ == 0) return;
-            GPU_CHECK_ERROR(
-                api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type) * base::size_));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
+                                           sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             if constexpr (!std::is_trivially_default_constructible_v<value_type>)
             {
@@ -465,8 +646,8 @@ namespace gpu_array
             auto al = std::allocator<value_type>();
             auto buf = al.allocate(base::size_);
             std::ranges::uninitialized_fill(buf, buf + base::size_, value);
-            GPU_CHECK_ERROR(
-                api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type) * base::size_));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
+                                           sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             GPU_CHECK_ERROR(api::gpuMemcpy(data(), buf, sizeof(value_type) * base::size_, gpuMemcpyHostToDevice));
             al.deallocate(buf, base::size_);
@@ -481,8 +662,8 @@ namespace gpu_array
         {
             if (base::size_ == 0) return;
 
-            GPU_CHECK_ERROR(
-                api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type) * base::size_));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
+                                           sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             GPU_CHECK_ERROR(
                 api::gpuMemcpy(data(), std::ranges::data(r), sizeof(value_type) * base::size_, gpuMemcpyHostToDevice));
@@ -499,8 +680,8 @@ namespace gpu_array
             auto buf = al.allocate(base::size_);
             for (auto i = std::size_t{0}; const auto& v : r) std::ranges::construct_at(buf + i++, v);
 
-            GPU_CHECK_ERROR(
-                api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type) * base::size_));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
+                                           sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             GPU_CHECK_ERROR(api::gpuMemcpy(data(), buf, sizeof(value_type) * base::size_, gpuMemcpyHostToDevice));
             al.deallocate(buf, base::size_);
@@ -509,8 +690,8 @@ namespace gpu_array
         __host__ array(std::initializer_list<value_type> r) : base(std::ranges::size(r))
         {
             if (base::size_ == 0) return;
-            GPU_CHECK_ERROR(
-                api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type) * base::size_));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
+                                           sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             GPU_CHECK_ERROR(
                 api::gpuMemcpy(data(), std::ranges::data(r), sizeof(ValueType) * base::size_, gpuMemcpyHostToDevice));
@@ -710,7 +891,7 @@ namespace gpu_array
             {
                 throw std::runtime_error("pointer type mismatch: expected device memory pointer");
             }
-            std::get<0>(base::data_) = ptr;
+            detail::get<0>(base::data_) = ptr;
         }
 #endif
 #if defined(GPU_OVERLOAD_DEVICE)
@@ -756,7 +937,7 @@ namespace gpu_array
                                    [](auto acc, const auto& r) { return acc + std::ranges::size(r); }))
         {
             if (base::size_ == 0) return;
-            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
+            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
                                                   sizeof(ValueType) * base::size_));
             assert(data() != nullptr);
 
@@ -812,8 +993,8 @@ namespace gpu_array
         __host__ __device__ const_reference front() const noexcept { return *begin(); }
         __host__ __device__ reference back() noexcept { return *(data() + base::size_ - 1); }
         __host__ __device__ const_reference back() const noexcept { return *(data() + base::size_ - 1); }
-        __host__ __device__ pointer data() noexcept { return std::get<0>(base::data_); }
-        __host__ __device__ const_pointer data() const noexcept { return std::get<0>(base::data_); }
+        __host__ __device__ pointer data() noexcept { return detail::get<0>(base::data_); }
+        __host__ __device__ const_pointer data() const noexcept { return detail::get<0>(base::data_); }
 
         managed_array() = default;
         __host__ __device__ managed_array(const managed_array& r) : base(r) {}
@@ -822,7 +1003,7 @@ namespace gpu_array
         __host__ explicit managed_array(std::size_t size) : base(size)
         {
             if (base::size_ == 0) return;
-            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
+            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
                                                   sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             std::ranges::uninitialized_value_construct(*this);
@@ -831,7 +1012,7 @@ namespace gpu_array
         __host__ explicit managed_array(std::size_t size, default_init_tag) : base(size)
         {
             if (base::size_ == 0) return;
-            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
+            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
                                                   sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             std::ranges::uninitialized_default_construct(*this);
@@ -840,7 +1021,7 @@ namespace gpu_array
         __host__ managed_array(std::size_t size, const value_type& value) : base(size)
         {
             if (base::size_ == 0) return;
-            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
+            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
                                                   sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             std::ranges::uninitialized_fill(*this, value);
@@ -851,7 +1032,7 @@ namespace gpu_array
         __host__ explicit managed_array(const T& r) : base(std::ranges::size(r))
         {
             if (base::size_ == 0) return;
-            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
+            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
                                                   sizeof(value_type) * base::size_));
             assert(data() != nullptr);
 
@@ -864,7 +1045,7 @@ namespace gpu_array
         __host__ managed_array(std::initializer_list<value_type> r) : base(std::ranges::size(r))
         {
             if (base::size_ == 0) return;
-            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)),
+            GPU_CHECK_ERROR(api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)),
                                                   sizeof(value_type) * base::size_));
             assert(data() != nullptr);
             for (auto i = std::size_t{0}; const auto& v : r) std::ranges::construct_at(data() + i++, v);
@@ -1070,7 +1251,7 @@ namespace gpu_array
             {
                 throw std::runtime_error("pointer type mismatch: expected managed memory pointer");
             }
-            std::get<0>(base::data_) = ptr;
+            detail::get<0>(base::data_) = ptr;
         }
 #endif
 #if defined(GPU_OVERLOAD_DEVICE)
@@ -1125,7 +1306,7 @@ namespace gpu_array
 
         __host__ explicit value(default_init_tag) : base(1)
         {
-            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type)));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)), sizeof(value_type)));
             assert(get() != nullptr);
             if constexpr (!std::is_trivially_default_constructible_v<value_type>)
             {
@@ -1136,7 +1317,7 @@ namespace gpu_array
 
         __host__ explicit value(const value_type& r) : base(1)
         {
-            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type)));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)), sizeof(value_type)));
             assert(get() != nullptr);
             GPU_CHECK_ERROR(api::gpuMemcpy(get(), &r, sizeof(value_type), gpuMemcpyHostToDevice));
         }
@@ -1146,7 +1327,7 @@ namespace gpu_array
         __host__ explicit value(Args&&... args) : base(1)
         {
             auto temp = value_type(std::forward<Args>(args)...);
-            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(value_type)));
+            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&detail::get<0>(base::data_)), sizeof(value_type)));
             assert(get() != nullptr);
             GPU_CHECK_ERROR(api::gpuMemcpy(get(), &temp, sizeof(value_type), gpuMemcpyHostToDevice));
         }
@@ -1162,7 +1343,7 @@ namespace gpu_array
             {
                 throw std::runtime_error("pointer type mismatch: expected device memory pointer");
             }
-            std::get<0>(base::data_) = ptr;
+            detail::get<0>(base::data_) = ptr;
         }
 #else
             : base(ptr, ptr == nullptr ? 0 : 1)
@@ -1181,8 +1362,8 @@ namespace gpu_array
             return *this;
         }
 
-        __host__ __device__ pointer get() const noexcept { return std::get<0>(base::data_); }
-        __host__ __device__ explicit operator bool() const noexcept { return std::get<0>(base::data_) != nullptr; }
+        __host__ __device__ pointer get() const noexcept { return detail::get<0>(base::data_); }
+        __host__ __device__ explicit operator bool() const noexcept { return detail::get<0>(base::data_) != nullptr; }
 
 #if defined(GPU_OVERLOAD_DEVICE)
         __device__ reference operator*() const noexcept
@@ -1252,7 +1433,7 @@ namespace gpu_array
         __host__ explicit managed_value(default_init_tag) : base(1)
         {
             GPU_CHECK_ERROR(
-                api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(ValueType)));
+                api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)), sizeof(ValueType)));
             assert(get() != nullptr);
             std::ranges::uninitialized_default_construct_n(get(), 1);
         }
@@ -1260,7 +1441,7 @@ namespace gpu_array
         __host__ explicit managed_value(const ValueType& r) : base(1)
         {
             GPU_CHECK_ERROR(
-                api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(ValueType)));
+                api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)), sizeof(ValueType)));
             assert(get() != nullptr);
             std::ranges::construct_at(get(), r);
         }
@@ -1268,7 +1449,7 @@ namespace gpu_array
         __host__ explicit managed_value(ValueType&& r) : base(1)
         {
             GPU_CHECK_ERROR(
-                api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(ValueType)));
+                api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)), sizeof(ValueType)));
             assert(get() != nullptr);
             std::ranges::construct_at(get(), std::move(r));
         }
@@ -1278,7 +1459,7 @@ namespace gpu_array
         __host__ explicit managed_value(Args&&... args) : base(1)
         {
             GPU_CHECK_ERROR(
-                api::gpuMallocManaged(reinterpret_cast<void**>(&std::get<0>(base::data_)), sizeof(ValueType)));
+                api::gpuMallocManaged(reinterpret_cast<void**>(&detail::get<0>(base::data_)), sizeof(ValueType)));
             assert(get() != nullptr);
             std::ranges::construct_at(get(), std::forward<Args>(args)...);
         }
@@ -1294,7 +1475,7 @@ namespace gpu_array
             {
                 throw std::runtime_error("pointer type mismatch: expected managed memory pointer");
             }
-            std::get<0>(base::data_) = ptr;
+            detail::get<0>(base::data_) = ptr;
         }
 #else
             : base(ptr, ptr == nullptr ? 0 : 1)
@@ -1324,8 +1505,8 @@ namespace gpu_array
             return get();
         }
 
-        __host__ __device__ pointer get() const noexcept { return std::get<0>(base::data_); }
-        __host__ __device__ explicit operator bool() const noexcept { return std::get<0>(base::data_) != nullptr; }
+        __host__ __device__ pointer get() const noexcept { return detail::get<0>(base::data_); }
+        __host__ __device__ explicit operator bool() const noexcept { return detail::get<0>(base::data_) != nullptr; }
 
         __host__ void prefetch(int device_id, api::gpuStream_t stream = 0, bool recursive = true) const
         {
@@ -1376,10 +1557,10 @@ namespace gpu_array
         template <std::size_t N, typename Tuple, typename... Ts>
         constexpr bool assignable_to_tuple_helper_n()
         {
-            return requires(const Tuple& t1, std::tuple<Ts...>& t2) {
-                std::get<N>(t1);
-                std::get<N>(t2);
-                requires std::assignable_from<decltype(std::get<N>(t2)), decltype(std::get<N>(t1))>;
+            return requires(const Tuple& t1, detail::tuple<Ts...>& t2) {
+                detail::get<N>(t1);
+                detail::get<N>(t2);
+                requires std::assignable_from<decltype(detail::get<N>(t2)), decltype(detail::get<N>(t1))>;
             };
         }
         template <typename Tuple, typename... Ts>
@@ -1396,7 +1577,7 @@ namespace gpu_array
     template <template <typename...> typename Tuple, typename... Ts>
     class structure_of_arrays_iterator
     {
-        std::tuple<Ts*...> ptrs_;
+        detail::tuple<Ts*...> ptrs_;
 
     public:
         using difference_type = std::ptrdiff_t;
@@ -1411,15 +1592,15 @@ namespace gpu_array
         structure_of_arrays_iterator& operator=(const structure_of_arrays_iterator&) = default;
         structure_of_arrays_iterator& operator=(structure_of_arrays_iterator&&) noexcept = default;
 
-        __host__ __device__ explicit structure_of_arrays_iterator(std::tuple<Ts*...> ptrs) : ptrs_(ptrs) {}
+        __host__ __device__ explicit structure_of_arrays_iterator(detail::tuple<Ts*...> ptrs) : ptrs_(ptrs) {}
 
         __host__ __device__ Tuple<Ts&...> operator*() const
         {
-            return std::apply([](auto*... ptrs) { return Tuple<Ts&...>(*ptrs...); }, ptrs_);
+            return detail::apply([](auto*... ptrs) { return Tuple<Ts&...>(*ptrs...); }, ptrs_);
         }
         __host__ __device__ Tuple<Ts&...> operator[](size_type n) const
         {
-            return std::apply([n](auto*... ptrs) { return Tuple<Ts&...>(ptrs[n]...); }, ptrs_);
+            return detail::apply([n](auto*... ptrs) { return Tuple<Ts&...>(ptrs[n]...); }, ptrs_);
         }
         __host__ __device__ auto operator->() const
         {
@@ -1432,7 +1613,7 @@ namespace gpu_array
         }
         __host__ __device__ structure_of_arrays_iterator& operator++()
         {
-            std::apply([](auto*&... ptrs) { (++ptrs, ...); }, ptrs_);
+            detail::apply([](auto*&... ptrs) { (++ptrs, ...); }, ptrs_);
             return *this;
         }
         __host__ __device__ structure_of_arrays_iterator operator++(int)
@@ -1443,12 +1624,12 @@ namespace gpu_array
         }
         __host__ __device__ structure_of_arrays_iterator& operator+=(difference_type n)
         {
-            std::apply([n](auto*&... ptrs) { ((ptrs += n), ...); }, ptrs_);
+            detail::apply([n](auto*&... ptrs) { ((ptrs += n), ...); }, ptrs_);
             return *this;
         }
         __host__ __device__ structure_of_arrays_iterator& operator--()
         {
-            std::apply([](auto*&... ptrs) { (--ptrs, ...); }, ptrs_);
+            detail::apply([](auto*&... ptrs) { (--ptrs, ...); }, ptrs_);
             return *this;
         }
         __host__ __device__ structure_of_arrays_iterator operator--(int)
@@ -1459,20 +1640,20 @@ namespace gpu_array
         }
         __host__ __device__ structure_of_arrays_iterator& operator-=(difference_type n)
         {
-            std::apply([n](auto*&... ptrs) { ((ptrs -= n), ...); }, ptrs_);
+            detail::apply([n](auto*&... ptrs) { ((ptrs -= n), ...); }, ptrs_);
             return *this;
         }
 
         __host__ __device__ friend difference_type operator-(const structure_of_arrays_iterator& lhs,
                                                              const structure_of_arrays_iterator& rhs)
         {
-            return std::get<0>(lhs.ptrs_) - std::get<0>(rhs.ptrs_);
+            return detail::get<0>(lhs.ptrs_) - detail::get<0>(rhs.ptrs_);
         }
         __host__ __device__ friend structure_of_arrays_iterator operator+(const structure_of_arrays_iterator& lhs,
                                                                           difference_type n)
         {
             return structure_of_arrays_iterator(
-                std::apply([n](auto*... ptrs) { return std::tuple{ptrs + n...}; }, lhs.ptrs_));
+                detail::apply([n](auto*... ptrs) { return detail::tuple{ptrs + n...}; }, lhs.ptrs_));
         }
         __host__ __device__ friend structure_of_arrays_iterator operator+(structure_of_arrays_iterator&& lhs,
                                                                           difference_type n)
@@ -1494,7 +1675,7 @@ namespace gpu_array
                                                                           difference_type n)
         {
             return structure_of_arrays_iterator(
-                std::apply([n](auto*... ptrs) { return std::tuple{ptrs - n...}; }, lhs.ptrs_));
+                detail::apply([n](auto*... ptrs) { return detail::tuple{ptrs - n...}; }, lhs.ptrs_));
         }
         __host__ __device__ friend structure_of_arrays_iterator operator-(structure_of_arrays_iterator&& lhs,
                                                                           difference_type n)
@@ -1506,16 +1687,16 @@ namespace gpu_array
         __host__ __device__ friend bool operator==(const structure_of_arrays_iterator& lhs,
                                                    const structure_of_arrays_iterator& rhs)
         {
-            return std::get<0>(lhs.ptrs_) == std::get<0>(rhs.ptrs_);
+            return detail::get<0>(lhs.ptrs_) == detail::get<0>(rhs.ptrs_);
         }
         __host__ __device__ friend std::strong_ordering operator<=>(const structure_of_arrays_iterator& lhs,
                                                                     const structure_of_arrays_iterator& rhs)
         {
-            return std::get<0>(lhs.ptrs_) <=> std::get<0>(rhs.ptrs_);
+            return detail::get<0>(lhs.ptrs_) <=> detail::get<0>(rhs.ptrs_);
         }
         __host__ __device__ friend auto iter_move(const structure_of_arrays_iterator& x)
         {
-            return std::apply(
+            return detail::apply(
                 [](auto*... ptrs) {
                     using RetType = std::remove_cvref_t<decltype(x)>::value_type;
                     return RetType(std::move(*ptrs)...);
@@ -1527,15 +1708,15 @@ namespace gpu_array
         {
             constexpr std::size_t size = std::tuple_size_v<std::remove_cvref_t<decltype(lhs.ptrs_)>>;
             [&lhs, &rhs]<std::size_t... N>(std::index_sequence<N...>) {
-                (std::swap(*std::get<N>(lhs.ptrs_), *std::get<N>(rhs.ptrs_)), ...);
+                (std::swap(*detail::get<N>(lhs.ptrs_), *detail::get<N>(rhs.ptrs_)), ...);
             }(std::make_index_sequence<size>());
         }
     };
 
     template <typename... Ts>
-    class structure_of_arrays : public structure_of_arrays<std::tuple<Ts...>, size_type_default>
+    class structure_of_arrays : public structure_of_arrays<detail::tuple<Ts...>, size_type_default>
     {
-        using base = structure_of_arrays<std::tuple<Ts...>, size_type_default>;
+        using base = structure_of_arrays<detail::tuple<Ts...>, size_type_default>;
         using base::base;
 
     public:
@@ -1567,9 +1748,9 @@ namespace gpu_array
         static constexpr auto num_arrays = sizeof...(Ts);
         using base = detail::base<false, SizeType, Ts...>;
 
-        using tuple_value_type = std::tuple<Ts...>;
-        using tuple_pointer_type = std::tuple<Ts*...>;
-        using tuple_const_pointer_type = std::tuple<const Ts*...>;
+        using tuple_value_type = detail::tuple<Ts...>;
+        using tuple_pointer_type = detail::tuple<Ts*...>;
+        using tuple_const_pointer_type = detail::tuple<const Ts*...>;
         using ret_tuple_value_type = Tuple<Ts...>;
         using ret_tuple_reference_type = Tuple<Ts&...>;
         using ret_tuple_const_reference_type = Tuple<const Ts&...>;
@@ -1584,18 +1765,18 @@ namespace gpu_array
         SIGSEGV_DEPRECATED __host__ __device__ auto begin() noexcept { return iterator_type(base::data_); }
         SIGSEGV_DEPRECATED __host__ __device__ auto end() noexcept
         {
-            return std::apply(
+            return detail::apply(
                 [this](auto&... ptrs) { return iterator_type(tuple_pointer_type{(ptrs + base::size_)...}); },
                 base::data_);
         }
         SIGSEGV_DEPRECATED __host__ __device__ auto begin() const noexcept
         {
-            return std::apply([](auto&... ptrs) { return const_iterator_type(tuple_const_pointer_type{(ptrs)...}); },
-                              base::data_);
+            return detail::apply([](auto&... ptrs) { return const_iterator_type(tuple_const_pointer_type{(ptrs)...}); },
+                                 base::data_);
         }
         SIGSEGV_DEPRECATED __host__ __device__ auto end() const noexcept
         {
-            return std::apply(
+            return detail::apply(
                 [this](auto&... ptrs) {
                     return const_iterator_type(tuple_const_pointer_type{(ptrs + base::size_)...});
                 },
@@ -1604,28 +1785,28 @@ namespace gpu_array
         SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) &
         {
             assert(i < base::size_);
-            return std::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
+            return detail::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
         }
         SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) const&
         {
             assert(i < base::size_);
-            return std::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
-                              base::data_);
+            return detail::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
+                                 base::data_);
         }
         SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) &&
         {
             assert(i < base::size_);
-            return std::apply([i](auto&... ptrs) { return ret_tuple_value_type{*(ptrs + i)...}; }, base::data_);
+            return detail::apply([i](auto&... ptrs) { return ret_tuple_value_type{*(ptrs + i)...}; }, base::data_);
         }
         template <std::size_t N>
         __host__ __device__ auto* data() noexcept
         {
-            return std::get<N>(base::data_);
+            return detail::get<N>(base::data_);
         }
         template <std::size_t N>
         __host__ __device__ const auto* data() const noexcept
         {
-            return std::get<N>(base::data_);
+            return detail::get<N>(base::data_);
         }
 
         structure_of_arrays() = default;
@@ -1672,7 +1853,7 @@ namespace gpu_array
             };
 
             [this, &value, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_), std::get<N>(value)), ...);
+                (alloc_ptr(detail::get<N>(base::data_), detail::get<N>(value)), ...);
             }(std::make_index_sequence<num_arrays>());
         }
 
@@ -1691,8 +1872,8 @@ namespace gpu_array
             };
 
             [this, &array, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_),
-                           array | std::views::transform([](const auto& v) { return (std::get<N>(v)); })),
+                (alloc_ptr(detail::get<N>(base::data_),
+                           array | std::views::transform([](const auto& v) { return (detail::get<N>(v)); })),
                  ...);
             }(std::make_index_sequence<num_arrays>());
         }
@@ -1710,15 +1891,15 @@ namespace gpu_array
             };
 
             [this, &list, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_),
-                           list | std::views::transform([](const auto& v) { return (std::get<N>(v)); })),
+                (alloc_ptr(detail::get<N>(base::data_),
+                           list | std::views::transform([](const auto& v) { return (detail::get<N>(v)); })),
                  ...);
             }(std::make_index_sequence<num_arrays>());
         }
 
         template <detail::array_convertible_for_copy... Ranges>
         requires (sizeof...(Ranges) == num_arrays) &&
-                 detail::assignable_to_tuple<std::tuple<std::ranges::range_value_t<Ranges>...>, Ts...>
+                 detail::assignable_to_tuple<detail::tuple<std::ranges::range_value_t<Ranges>...>, Ts...>
         __host__ explicit structure_of_arrays(const Ranges&... arrays) : base(std::max({std::ranges::size(arrays)...}))
         {
             if (base::size_ == 0) return;
@@ -1737,9 +1918,9 @@ namespace gpu_array
                 GPU_CHECK_ERROR(api::gpuMemcpy(ptr, buf.get(), sizeof(T) * base::size_, gpuMemcpyHostToDevice));
             };
 
-            auto arrays_tuple = std::tuple<const Ranges&...>(arrays...);
+            auto arrays_tuple = detail::tuple<const Ranges&...>(arrays...);
             [this, &arrays_tuple, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_), std::get<N>(arrays_tuple)), ...);
+                (alloc_ptr(detail::get<N>(base::data_), detail::get<N>(arrays_tuple)), ...);
             }(std::make_index_sequence<num_arrays>());
         }
 
@@ -1762,9 +1943,9 @@ namespace gpu_array
                 GPU_CHECK_ERROR(api::gpuMemcpy(ptr, buf.get(), sizeof(T) * base::size_, gpuMemcpyHostToDevice));
             };
 
-            auto arrays_tuple = std::tuple<std::initializer_list<Ts>...>(lists...);
+            auto arrays_tuple = detail::tuple<std::initializer_list<Ts>...>(lists...);
             [this, &arrays_tuple, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_), std::get<N>(arrays_tuple)), ...);
+                (alloc_ptr(detail::get<N>(base::data_), detail::get<N>(arrays_tuple)), ...);
             }(std::make_index_sequence<num_arrays>());
         }
 
@@ -1796,9 +1977,9 @@ namespace gpu_array
                 return buf;
             };
 
-            const auto tmp_bufs = std::apply(
+            const auto tmp_bufs = detail::apply(
                 [copy_buffer](const auto*... ptrs) {
-                    return std::tuple<std::unique_ptr<Ts[]>...>(copy_buffer(ptrs)...);
+                    return detail::tuple<std::unique_ptr<Ts[]>...>(copy_buffer(ptrs)...);
                 },
                 base::data_);
 
@@ -1814,7 +1995,7 @@ namespace gpu_array
 
                 for (size_type i = 0; i < base::size_; ++i)
                 {
-                    std::apply([&result, i](const auto&... bufs) { result.push_back(U{bufs[i]...}); }, tmp_bufs);
+                    detail::apply([&result, i](const auto&... bufs) { result.push_back(U{bufs[i]...}); }, tmp_bufs);
                 }
 
                 return result;
@@ -1826,7 +2007,7 @@ namespace gpu_array
 
                 for (size_type i = 0; i < base::size_; ++i)
                 {
-                    std::apply([&result, i](const auto&... bufs) { result[i] = U{bufs[i]...}; }, tmp_bufs);
+                    detail::apply([&result, i](const auto&... bufs) { result[i] = U{bufs[i]...}; }, tmp_bufs);
                 }
 
                 return result;
@@ -1852,7 +2033,7 @@ namespace gpu_array
             if (base::size_ > 0) assert(ptr != nullptr);
 
             // reset specified pointer only
-            std::get<N>(base::data_) = base::size_ == 0 ? nullptr : ptr;
+            detail::get<N>(base::data_) = base::size_ == 0 ? nullptr : ptr;
         }
 
         template <std::size_t N, gpu_array_ptr T>
@@ -1872,9 +2053,9 @@ namespace gpu_array
     };
 
     template <typename... Ts>
-    class managed_structure_of_arrays : public managed_structure_of_arrays<std::tuple<Ts...>, size_type_default>
+    class managed_structure_of_arrays : public managed_structure_of_arrays<detail::tuple<Ts...>, size_type_default>
     {
-        using base = managed_structure_of_arrays<std::tuple<Ts...>, size_type_default>;
+        using base = managed_structure_of_arrays<detail::tuple<Ts...>, size_type_default>;
         using base::base;
 
     public:
@@ -1907,9 +2088,9 @@ namespace gpu_array
         static constexpr auto num_arrays = sizeof...(Ts);
         using base = detail::base<true, SizeType, Ts...>;
 
-        using tuple_value_type = std::tuple<Ts...>;
-        using tuple_pointer_type = std::tuple<Ts*...>;
-        using tuple_const_pointer_type = std::tuple<const Ts*...>;
+        using tuple_value_type = detail::tuple<Ts...>;
+        using tuple_pointer_type = detail::tuple<Ts*...>;
+        using tuple_const_pointer_type = detail::tuple<const Ts*...>;
         using ret_tuple_value_type = Tuple<Ts...>;
         using ret_tuple_reference_type = Tuple<Ts&...>;
         using ret_tuple_const_reference_type = Tuple<const Ts&...>;
@@ -1944,7 +2125,8 @@ namespace gpu_array
             };
 
             [this, &alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_), [](const auto& v) -> const auto& { return (std::get<N>(v)); }),
+                (alloc_ptr(detail::get<N>(base::data_),
+                           [](const auto& v) -> const auto& { return (detail::get<N>(v)); }),
                  ...);
             }(std::make_index_sequence<num_arrays>());
         }
@@ -1957,18 +2139,18 @@ namespace gpu_array
         __host__ __device__ auto begin() noexcept { return iterator_type(base::data_); }
         __host__ __device__ auto end() noexcept
         {
-            return std::apply(
+            return detail::apply(
                 [this](auto&... ptrs) { return iterator_type(tuple_pointer_type{(ptrs + base::size_)...}); },
                 base::data_);
         }
         __host__ __device__ auto begin() const noexcept
         {
-            return std::apply([](auto&... ptrs) { return const_iterator_type(tuple_const_pointer_type{(ptrs)...}); },
-                              base::data_);
+            return detail::apply([](auto&... ptrs) { return const_iterator_type(tuple_const_pointer_type{(ptrs)...}); },
+                                 base::data_);
         }
         __host__ __device__ auto end() const noexcept
         {
-            return std::apply(
+            return detail::apply(
                 [this](auto&... ptrs) {
                     return const_iterator_type(tuple_const_pointer_type{(ptrs + base::size_)...});
                 },
@@ -1977,28 +2159,28 @@ namespace gpu_array
         __host__ __device__ auto operator[](size_type i) &
         {
             assert(i < base::size_);
-            return std::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
+            return detail::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
         }
         __host__ __device__ auto operator[](size_type i) const&
         {
             assert(i < base::size_);
-            return std::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
-                              base::data_);
+            return detail::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
+                                 base::data_);
         }
         __host__ __device__ auto operator[](size_type i) &&
         {
             assert(i < base::size_);
-            return std::apply([i](auto&... ptrs) { return ret_tuple_value_type{*(ptrs + i)...}; }, base::data_);
+            return detail::apply([i](auto&... ptrs) { return ret_tuple_value_type{*(ptrs + i)...}; }, base::data_);
         }
         template <std::size_t N>
         __host__ __device__ auto* data() noexcept
         {
-            return std::get<N>(base::data_);
+            return detail::get<N>(base::data_);
         }
         template <std::size_t N>
         __host__ __device__ const auto* data() const noexcept
         {
-            return std::get<N>(base::data_);
+            return detail::get<N>(base::data_);
         }
 
         managed_structure_of_arrays() = default;
@@ -2039,7 +2221,8 @@ namespace gpu_array
             });
 
             [this, &value]<std::size_t... N>(std::index_sequence<N...>) {
-                (std::ranges::uninitialized_fill_n(std::get<N>(base::data_), base::size_, std::get<N>(value)), ...);
+                (std::ranges::uninitialized_fill_n(detail::get<N>(base::data_), base::size_, detail::get<N>(value)),
+                 ...);
             }(std::make_index_sequence<num_arrays>());
         }
 
@@ -2060,7 +2243,8 @@ namespace gpu_array
             };
 
             [this, &alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_), [](const auto& e) -> const auto& { return (std::get<N>(e)); }),
+                (alloc_ptr(detail::get<N>(base::data_),
+                           [](const auto& e) -> const auto& { return (detail::get<N>(e)); }),
                  ...);
             }(std::make_index_sequence<num_arrays>());
         }
@@ -2081,14 +2265,15 @@ namespace gpu_array
             };
 
             [this, &alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_), [](const auto& e) -> const auto& { return (std::get<N>(e)); }),
+                (alloc_ptr(detail::get<N>(base::data_),
+                           [](const auto& e) -> const auto& { return (detail::get<N>(e)); }),
                  ...);
             }(std::make_index_sequence<num_arrays>());
         }
 
         template <detail::array_convertible_for_copy... Ranges>
         requires (sizeof...(Ranges) == num_arrays) &&
-                 detail::assignable_to_tuple<std::tuple<std::ranges::range_value_t<Ranges>...>, Ts...>
+                 detail::assignable_to_tuple<detail::tuple<std::ranges::range_value_t<Ranges>...>, Ts...>
         __host__ explicit managed_structure_of_arrays(const Ranges&... arrays)
             : base(std::max({std::ranges::size(arrays)...}))
         {
@@ -2106,9 +2291,9 @@ namespace gpu_array
                 for (auto i = std::size_t{0}; const auto& v : range) std::ranges::construct_at(ptr + i++, v);
             };
 
-            auto arrays_tuple = std::tuple<const Ranges&...>(arrays...);
+            auto arrays_tuple = detail::tuple<const Ranges&...>(arrays...);
             [this, &arrays_tuple, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_), std::get<N>(arrays_tuple)), ...);
+                (alloc_ptr(detail::get<N>(base::data_), detail::get<N>(arrays_tuple)), ...);
             }(std::make_index_sequence<num_arrays>());
         }
 
@@ -2129,9 +2314,9 @@ namespace gpu_array
                 for (auto i = std::size_t{0}; const auto& v : range) std::ranges::construct_at(ptr + i++, v);
             };
 
-            auto arrays_tuple = std::tuple<std::initializer_list<Ts>...>(lists...);
+            auto arrays_tuple = detail::tuple<std::initializer_list<Ts>...>(lists...);
             [this, &arrays_tuple, alloc_ptr]<std::size_t... N>(std::index_sequence<N...>) {
-                (alloc_ptr(std::get<N>(base::data_), std::get<N>(arrays_tuple)), ...);
+                (alloc_ptr(detail::get<N>(base::data_), detail::get<N>(arrays_tuple)), ...);
             }(std::make_index_sequence<num_arrays>());
         }
 
@@ -2258,7 +2443,7 @@ namespace gpu_array
 
                 for (size_type i = 0; i < base::size_; ++i)
                 {
-                    std::apply([&result, i](const auto&... bufs) { result.push_back(U{bufs[i]...}); }, base::data_);
+                    detail::apply([&result, i](const auto&... bufs) { result.push_back(U{bufs[i]...}); }, base::data_);
                 }
 
                 return result;
@@ -2270,7 +2455,7 @@ namespace gpu_array
 
                 for (size_type i = 0; i < base::size_; ++i)
                 {
-                    std::apply([&result, i](const auto&... bufs) { result[i] = U{bufs[i]...}; }, base::data_);
+                    detail::apply([&result, i](const auto&... bufs) { result[i] = U{bufs[i]...}; }, base::data_);
                 }
 
                 return result;
@@ -2296,7 +2481,7 @@ namespace gpu_array
             if (base::size_ > 0) assert(ptr != nullptr);
 
             // reset specified pointer only
-            std::get<N>(base::data_) = base::size_ == 0 ? nullptr : ptr;
+            detail::get<N>(base::data_) = base::size_ == 0 ? nullptr : ptr;
         }
 
         template <std::size_t N, gpu_array_ptr T>
