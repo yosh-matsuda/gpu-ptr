@@ -57,6 +57,13 @@ namespace gpu_array
         template <std::size_t I, class T>
         struct tuple_leaf
         {
+            tuple_leaf()
+            requires std::default_initializable<T>
+            = default;
+            template <class U>
+            __host__ __device__ tuple_leaf(U&& u) : value(std::forward<U>(u))
+            {
+            }
             using type = T;
             T value;
         };
@@ -97,7 +104,7 @@ namespace gpu_array
             };
             template <class... Us>
             requires (sizeof...(Us) == sizeof...(Ts) && !is_single_tuple<std::remove_cvref_t<Us>...>::value)
-            __host__ __device__ tuple(Us&&... us) : base_{std::forward<Us>(us)...}
+            __host__ __device__ tuple(Us&&... us) : base_(std::forward<Us>(us)...)
             {
             }
 
@@ -1309,7 +1316,8 @@ namespace gpu_array
 
         __host__ explicit value(default_init_tag) : base(1)
         {
-            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&gpu_array::get<0>(base::data_)), sizeof(value_type)));
+            GPU_CHECK_ERROR(
+                api::gpuMalloc(reinterpret_cast<void**>(&gpu_array::get<0>(base::data_)), sizeof(value_type)));
             assert(get() != nullptr);
             if constexpr (!std::is_trivially_default_constructible_v<value_type>)
             {
@@ -1320,7 +1328,8 @@ namespace gpu_array
 
         __host__ explicit value(const value_type& r) : base(1)
         {
-            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&gpu_array::get<0>(base::data_)), sizeof(value_type)));
+            GPU_CHECK_ERROR(
+                api::gpuMalloc(reinterpret_cast<void**>(&gpu_array::get<0>(base::data_)), sizeof(value_type)));
             assert(get() != nullptr);
             GPU_CHECK_ERROR(api::gpuMemcpy(get(), &r, sizeof(value_type), gpuMemcpyHostToDevice));
         }
@@ -1330,7 +1339,8 @@ namespace gpu_array
         __host__ explicit value(Args&&... args) : base(1)
         {
             auto temp = value_type(std::forward<Args>(args)...);
-            GPU_CHECK_ERROR(api::gpuMalloc(reinterpret_cast<void**>(&gpu_array::get<0>(base::data_)), sizeof(value_type)));
+            GPU_CHECK_ERROR(
+                api::gpuMalloc(reinterpret_cast<void**>(&gpu_array::get<0>(base::data_)), sizeof(value_type)));
             assert(get() != nullptr);
             GPU_CHECK_ERROR(api::gpuMemcpy(get(), &temp, sizeof(value_type), gpuMemcpyHostToDevice));
         }
@@ -1366,7 +1376,10 @@ namespace gpu_array
         }
 
         __host__ __device__ pointer get() const noexcept { return gpu_array::get<0>(base::data_); }
-        __host__ __device__ explicit operator bool() const noexcept { return gpu_array::get<0>(base::data_) != nullptr; }
+        __host__ __device__ explicit operator bool() const noexcept
+        {
+            return gpu_array::get<0>(base::data_) != nullptr;
+        }
 
 #if defined(GPU_OVERLOAD_DEVICE)
         __device__ reference operator*() const noexcept
@@ -1509,7 +1522,10 @@ namespace gpu_array
         }
 
         __host__ __device__ pointer get() const noexcept { return gpu_array::get<0>(base::data_); }
-        __host__ __device__ explicit operator bool() const noexcept { return gpu_array::get<0>(base::data_) != nullptr; }
+        __host__ __device__ explicit operator bool() const noexcept
+        {
+            return gpu_array::get<0>(base::data_) != nullptr;
+        }
 
         __host__ void prefetch(int device_id, api::gpuStream_t stream = 0, bool recursive = true) const
         {
@@ -1774,8 +1790,8 @@ namespace gpu_array
         }
         SIGSEGV_DEPRECATED __host__ __device__ auto begin() const noexcept
         {
-            return gpu_array::apply([](auto&... ptrs) { return const_iterator_type(tuple_const_pointer_type{(ptrs)...}); },
-                                 base::data_);
+            return gpu_array::apply(
+                [](auto&... ptrs) { return const_iterator_type(tuple_const_pointer_type{(ptrs)...}); }, base::data_);
         }
         SIGSEGV_DEPRECATED __host__ __device__ auto end() const noexcept
         {
@@ -1788,13 +1804,14 @@ namespace gpu_array
         SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) &
         {
             assert(i < base::size_);
-            return gpu_array::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
+            return gpu_array::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; },
+                                    base::data_);
         }
         SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) const&
         {
             assert(i < base::size_);
             return gpu_array::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
-                                 base::data_);
+                                    base::data_);
         }
         SIGSEGV_DEPRECATED __host__ __device__ auto operator[](size_type i) &&
         {
@@ -2148,8 +2165,8 @@ namespace gpu_array
         }
         __host__ __device__ auto begin() const noexcept
         {
-            return gpu_array::apply([](auto&... ptrs) { return const_iterator_type(tuple_const_pointer_type{(ptrs)...}); },
-                                 base::data_);
+            return gpu_array::apply(
+                [](auto&... ptrs) { return const_iterator_type(tuple_const_pointer_type{(ptrs)...}); }, base::data_);
         }
         __host__ __device__ auto end() const noexcept
         {
@@ -2162,13 +2179,14 @@ namespace gpu_array
         __host__ __device__ auto operator[](size_type i) &
         {
             assert(i < base::size_);
-            return gpu_array::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; }, base::data_);
+            return gpu_array::apply([i](auto&... ptrs) { return ret_tuple_reference_type{*(ptrs + i)...}; },
+                                    base::data_);
         }
         __host__ __device__ auto operator[](size_type i) const&
         {
             assert(i < base::size_);
             return gpu_array::apply([i](auto&... ptrs) { return ret_tuple_const_reference_type{*(ptrs + i)...}; },
-                                 base::data_);
+                                    base::data_);
         }
         __host__ __device__ auto operator[](size_type i) &&
         {
@@ -2224,7 +2242,8 @@ namespace gpu_array
             });
 
             [this, &value]<std::size_t... N>(std::index_sequence<N...>) {
-                (std::ranges::uninitialized_fill_n(gpu_array::get<N>(base::data_), base::size_, gpu_array::get<N>(value)),
+                (std::ranges::uninitialized_fill_n(gpu_array::get<N>(base::data_), base::size_,
+                                                   gpu_array::get<N>(value)),
                  ...);
             }(std::make_index_sequence<num_arrays>());
         }
@@ -2446,7 +2465,8 @@ namespace gpu_array
 
                 for (size_type i = 0; i < base::size_; ++i)
                 {
-                    gpu_array::apply([&result, i](const auto&... bufs) { result.push_back(U{bufs[i]...}); }, base::data_);
+                    gpu_array::apply([&result, i](const auto&... bufs) { result.push_back(U{bufs[i]...}); },
+                                     base::data_);
                 }
 
                 return result;
